@@ -315,7 +315,7 @@ void Off::Init()
 		Off::FField::Class = OffsetFinder::FindFFieldClassOffset();
 		std::cerr << std::format("Off::FField::Class: 0x{:X}\n", Off::FField::Class);
 
-		Off::FField::Name = OffsetFinder::FindFFieldNameOffset();
+		Off::FField::Name = 0x20;
 		std::cerr << std::format("Off::FField::Name: 0x{:X}\n", Off::FField::Name);
 
 		/*
