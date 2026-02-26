@@ -25,8 +25,6 @@ DWORD MainThread(HMODULE Module)
 	freopen_s(&Dummy, "CONOUT$", "w", stderr);
 	freopen_s(&Dummy, "CONIN$", "r", stdin);
 
-	auto t_1 = std::chrono::high_resolution_clock::now();
-
 	std::cerr << "Started Generation [Dumper-7]!\n";
 
 	Settings::Config::Load();
@@ -36,6 +34,8 @@ DWORD MainThread(HMODULE Module)
 		std::cerr << "Sleeping for " << Settings::Config::SleepTimeout << "ms...\n";
 		Sleep(Settings::Config::SleepTimeout);
 	}
+
+	auto DumpStartTime = std::chrono::high_resolution_clock::now();
 
 	Generator::InitEngineCore();
 	Generator::InitInternal();
@@ -59,17 +59,18 @@ DWORD MainThread(HMODULE Module)
 	std::cerr << "GameName: " << Settings::Generator::GameName << "\n";
 	std::cerr << "GameVersion: " << Settings::Generator::GameVersion << "\n\n";
 
+	std::cerr << "FolderName: " << (Settings::Generator::GameVersion + '-' + Settings::Generator::GameName) << "\n\n";
+
 	Generator::Generate<CppGenerator>();
 	Generator::Generate<MappingGenerator>();
 	Generator::Generate<IDAMappingGenerator>();
 	Generator::Generate<DumpspaceGenerator>();
 
-	auto t_C = std::chrono::high_resolution_clock::now();
+	auto DumpFinishTime = std::chrono::high_resolution_clock::now();
 
-	auto ms_int_ = std::chrono::duration_cast<std::chrono::milliseconds>(t_C - t_1);
-	std::chrono::duration<double, std::milli> ms_double_ = t_C - t_1;
+	std::chrono::duration<double, std::milli> DumpTime = DumpFinishTime - DumpStartTime;
 
-	std::cerr << "\n\nGenerating SDK took (" << ms_double_.count() << "ms)\n\n\n";
+	std::cerr << "\n\nGenerating SDK took (" << DumpTime.count() << "ms)\n\n\n";
 
 	while (true)
 	{

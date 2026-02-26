@@ -8,6 +8,10 @@
 #include "HashStringTable.h"
 #include "Utils.h"
 
+#include "Platform.h"
+#include "Json/json.hpp"
+
+#include <fstream>
 
 inline void InitSettings()
 {
@@ -24,12 +28,12 @@ void Generator::InitEngineCore()
 	/* manual override */
 	//ObjectArray::Init(/*GObjects*/, /*Layout = Default*/); // FFixedUObjectArray (UEVersion < UE4.21)
 	//ObjectArray::Init(/*GObjects*/, /*ChunkSize*/, /*Layout = Default*/); // FChunkedFixedUObjectArray (UEVersion >= UE4.21)
-	// 
+
 	//FName::Init(/*bForceGNames = false*/);
 	//FName::Init(/*AppendString, FName::EOffsetOverrideType::AppendString*/);
 	//FName::Init(/*ToString, FName::EOffsetOverrideType::ToString*/);
 	//FName::Init(/*GNames, FName::EOffsetOverrideType::GNames, true/false*/);
-	// 
+ 
 	//Off::InSDK::ProcessEvent::InitPE(/*PEIndex*/);
 
 	/* Back4Blood (requires manual GNames override) */
@@ -39,10 +43,13 @@ void Generator::InitEngineCore()
 	//InitObjectArrayDecryption([](void* ObjPtr) -> uint8* { return reinterpret_cast<uint8*>(uint64(ObjPtr) ^ 0x1B5DEAFD6B4068C); });
 
 	ObjectArray::Init();
-	FName::Init();
+
+	CALL_PLATFORM_SPECIFIC_FUNCTION(FName::Init);
+
 	Off::Init();
 	PropertySizes::Init();
-	Off::InSDK::ProcessEvent::InitPE(); // Must be at this position, relies on offsets initialized in Off::Init()
+
+	CALL_PLATFORM_SPECIFIC_FUNCTION(Off::InSDK::ProcessEvent::InitPE); // Must be at this position, relies on offsets initialized in Off::Init()
 
 	Off::InSDK::World::InitGWorld(); // Must be at this position, relies on offsets initialized in Off::Init()
 
@@ -139,4 +146,46 @@ bool Generator::SetupFolders(std::string& FolderName, fs::path& OutFolder, std::
 	}
 
 	return true;
+}
+
+
+void DumpEditorOnlyMetadata(const fs::path& DumperFolder)
+{
+	if (Off::FField::EditorOnlyMetadata == -1)
+		return;
+
+	nlohmann::json MetadataJson;
+	MetadataJson["GameName"] = Settings::Generator::GameName;
+	MetadataJson["GameVersion"] = Settings::Generator::GameVersion;
+
+	for (UEObject Obj : ObjectArray())
+	{
+		if (!Obj.IsA(EClassCastFlags::Struct))
+			continue;
+
+		UEStruct Struct = Obj.Cast<UEStruct>();
+
+		auto ChildProperties = Struct.GetProperties();
+
+		if (ChildProperties.empty())
+			continue;
+
+		auto& StructMembers = MetadataJson[Struct.GetCppName()];
+
+		for (UEProperty Prop : Struct.GetProperties())
+		{
+			auto& Entries = StructMembers[Prop.GetValidName()];
+
+			for (const auto& [Key, Value] : Prop.Cast<UEFField>().GetMetaData())
+			{
+				if (Key.empty() && Value.empty())
+					continue;
+
+				Entries[Key] = Value;
+			}
+		}
+	}
+
+	std::ofstream MetadataFile(DumperFolder / "Metadata.json");
+	MetadataFile << MetadataJson.dump(4);
 }

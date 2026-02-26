@@ -124,6 +124,49 @@ UEFField UEFField::GetNext() const
 	return UEFField(*reinterpret_cast<void**>(Field + Off::FField::Next));
 }
 
+std::vector<std::pair<std::string, std::string>> UEFField::GetMetaData() const
+{
+	using ValueType = std::conditional_t<sizeof(void*) == 0x8, int64, int32>;
+
+	struct alignas(0x4) Name04Byte { uint8 Pad[0x04]; };
+	struct alignas(0x4) Name08Byte { uint8 Pad[0x08]; };
+	struct alignas(0x4) Name12Byte { uint8 Pad[0x0C]; };
+	struct alignas(0x4) Name16Byte { uint8 Pad[0x10]; };
+
+	static constexpr uintptr_t PointeFlagHasTag = 0x1;
+	static constexpr uintptr_t PointerMaskNoTag = ~0x1;
+
+
+	static auto GetPairsAsStrings = []<typename NameType>(const TMap<NameType, FString> &EnumNameValuePairs)
+	{
+		std::vector<std::pair<std::string, std::string>> Result;
+
+		for (const auto& [Key, Value] : EnumNameValuePairs)
+		{
+			Result.emplace_back(FName(&Key).ToString(), Value.ToString());
+		}
+
+		return Result;
+	};
+
+	if (Off::InSDK::Name::FNameSize > 0x8)
+	{
+		auto* Map = *reinterpret_cast<TMap<Name16Byte, FString>**>(Field + Off::FField::EditorOnlyMetadata);
+
+		if (!Map)
+			return {};
+
+		return GetPairsAsStrings(*Map);
+	}
+
+	auto* Map = *reinterpret_cast<TMap<Name08Byte, FString>**>(Field + Off::FField::EditorOnlyMetadata);
+
+	if (!Map)
+		return {};
+
+	return GetPairsAsStrings(*Map);
+}
+
 template<typename UEType>
 UEType UEFField::Cast() const
 {
@@ -442,9 +485,52 @@ std::vector<std::pair<FName, int64>> UEEnum::GetNameValuePairs() const
 {
 	using ValueType = std::conditional_t<sizeof(void*) == 0x8, int64, int32>;
 
+	struct alignas(0x4) Name04Byte { uint8 Pad[0x04]; };
 	struct alignas(0x4) Name08Byte { uint8 Pad[0x08]; };
+	struct alignas(0x4) Name12Byte { uint8 Pad[0x0C]; };
 	struct alignas(0x4) Name16Byte { uint8 Pad[0x10]; };
 	struct alignas(0x4) UInt8As64 { uint8 Bytes[sizeof(void*)]; inline operator int64() const { return Bytes[0]; }; };
+
+	static constexpr uintptr_t PointeFlagHasTag =  0x1;
+	static constexpr uintptr_t PointerMaskNoTag = ~0x1;
+
+	/*
+	 * For UEVersion >= UE5.6 
+	 * 
+	 * See: https://github.com/EpicGames/UnrealEngine/blob/ue5-main/Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h#L3411
+	*/
+	static auto GetNameValuePairsForFNameData = [](const uintptr_t Object, const uint32_t EnumNamesOffset, const uint32_t FNameSize)
+	{
+		std::vector<std::pair<FName, int64>> Ret;
+
+		const uintptr_t TaggedNamesPtr = *reinterpret_cast<uintptr_t*>(Object + EnumNamesOffset);
+		const bool bIsNamesPtrTagged = (TaggedNamesPtr & PointeFlagHasTag) != 0;
+		const uint8* NamesPtr = reinterpret_cast<uint8*>(TaggedNamesPtr & PointerMaskNoTag);
+
+		if (!bIsNamesPtrTagged)
+		{
+			/* StaticNamesUTF8 is not supported yet. See: https://github.com/EpicGames/UnrealEngine/blob/ue5-main/Engine/Source/Runtime/CoreUObject/Public/UObject/Class.h#L3408*/
+			std::cerr << "Dumper-7 [UEEnum::GetNameValuePairs()]: UEnum::Names pointer is tagged! This is not supported yet!" << std::endl;
+			Sleep(100'000);
+			exit(1);
+		}
+
+		const int64* Values = reinterpret_cast<int64*>(*reinterpret_cast<uintptr_t*>(Object + EnumNamesOffset + 0x8) & PointerMaskNoTag);
+		const int32 NumValues = *reinterpret_cast<int32*>(Object + EnumNamesOffset + 0x10);
+
+		for (uint32_t i = 0; i < NumValues; i++)
+		{
+			Ret.push_back({ FName(NamesPtr + (i * FNameSize)), Values[i] });
+		}
+
+		return Ret;
+	};
+
+	if (Settings::Internal::bIsNewUE5EnumNamesContainer)
+	{
+		return GetNameValuePairsForFNameData(reinterpret_cast<const uintptr_t>(Object), Off::UEnum::Names - 0x8, Off::InSDK::Name::FNameSize);
+	}
+
 
 	static auto GetNameValuePairsWithIndex = []<typename NameType, typename ValueType>(const TArray<TPair<NameType, ValueType>>&EnumNameValuePairs)
 	{
@@ -547,9 +633,9 @@ UEFField UEStruct::GetChildProperties() const
 	return UEFField(*reinterpret_cast<void**>(Object + Off::UStruct::ChildProperties));
 }
 
-int32 UEStruct::GetMinAlignment() const
+int16 UEStruct::GetMinAlignment() const
 {
-	return *reinterpret_cast<int32*>(Object + Off::UStruct::MinAlignemnt);
+	return *reinterpret_cast<int16*>(Object + Off::UStruct::MinAlignment);
 }
 
 int32 UEStruct::GetStructSize() const

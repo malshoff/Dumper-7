@@ -97,10 +97,13 @@ public:
 	FName(const void* Ptr);
 
 public:
-	static void Init(bool bForceGNames = false);
+	static void Init_Windows(bool bForceGNames = false);
 	static void InitFallback();
 
-	static void Init(int32 OverrideOffset, EOffsetOverrideType OverrideType = EOffsetOverrideType::AppendString, bool bIsNamePool = false, const char* const ModuleName = nullptr);
+	static void Init(int32 OverrideOffset, EOffsetOverrideType OverrideType = EOffsetOverrideType::AppendString, bool bIsNamePool = false, const char* const ModuleName = Settings::General::DefaultModuleName);
+
+private:
+	static void* TryFindApendStringBackupStringRef_Windows();
 
 public:
 	inline const void* GetAddress() const { return Address; }

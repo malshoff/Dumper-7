@@ -6,13 +6,13 @@
 
 namespace Settings
 {
-	constexpr bool Is32Bit()
+	namespace General
 	{
-#if defined(_WIN64)
-		return false;
-#elif defined(_WIN32)
-		return true;
-#endif
+		/* This option determines whether calls to FindByStringInAllSections should only search executable sections, or all sections. */
+		constexpr bool bSearchOnlyExecutableSectionsForStrings = true;
+
+		/* If the target module is not the main executable, specify it here (e.g. "Some-dll-name.dll") */
+		constexpr const char* DefaultModuleName = nullptr;
 	}
   
 	inline constexpr const char* GlobalConfigPath = "C:/Dumper-7/Dumper-7.ini";
@@ -28,7 +28,7 @@ namespace Settings
 	namespace EngineCore
 	{
 		/* A special setting to fix UEnum::Names where the type is sometimes TArray<FName> and sometimes TArray<TPair<FName, Some8BitData>> */
-		constexpr bool bCheckEnumNamesInUEnum = true;
+		constexpr bool bCheckEnumNamesInUEnum = false;
 
 		/* Enables support for TEncryptedObjectProperty */
 		constexpr bool bEnableEncryptedObjectPropertySupport = false;
@@ -51,9 +51,10 @@ namespace Settings
 		/* No seperate namespace for Params -> ParamNamespaceName = nullptr */
 		constexpr const char* ParamNamespaceName = "Params";
 
-		/* Feature is currently not supported/not working. */
-		/* Do not XOR strings -> XORString = nullptr. Custom XorStr implementations differing from https://github.com/JustasMasiulis/xorstr may require changes to the struct 'StringLiteral' in CppGenerator.cpp.  */
+		/* XOR function name, that will be wrapped around any generated string. e.g. "xorstr_" -> xorstr_("Pawn") etc. */
 		constexpr const char* XORString = nullptr;
+		/* XOR header file name. e.g. "xorstr.hpp" */
+		constexpr const char* XORStringInclude = nullptr;
 
 		/* Customizable part of Cpp code to allow for a custom 'uintptr_t InSDKUtils::GetImageBase()' function */
 		constexpr const char* GetImageBaseFuncBody = 
@@ -96,13 +97,18 @@ R"(
 	/* Partially implemented  */
 	namespace Debug
 	{
-		inline constexpr bool bGenerateAssertionFile = false;
+		/* Generates a dedicated file defining macros for static asserts (Make sure InlineAssertions are off) */
+		inline constexpr bool bGenerateAssertionFile = true;
+
+		/* Prefix for assertion macros in assertion file. Example for "MyPackage_params.hpp": #define DUMPER7_ASSERTS_PARAMS_MyPackage */
+		inline constexpr const char* AssertionMacroPrefix = "DUMPER7_ASSERTS_";
+
 
 		/* Adds static_assert for struct-size, as well as struct-alignment */
-		inline constexpr bool bGenerateInlineAssertionsForStructSize = true;
+		inline constexpr bool bGenerateInlineAssertionsForStructSize = false;
 
 		/* Adds static_assert for member-offsets */
-		inline constexpr bool bGenerateInlineAssertionsForStructMembers = true;
+		inline constexpr bool bGenerateInlineAssertionsForStructMembers = false;
 
 
 		/* Prints debug information during Mapping-Generation */
@@ -119,6 +125,9 @@ R"(
 
 		/* Whether the 'Value' component in the Pair<Name, Value> UEnum::Names is a uint8 value, rather than the default int64 */
 		inline bool bIsSmallEnumValue = false;
+
+		/* Whether UEnum::Names is of the new 'FNameData' type, rather than TArray<...> */
+		inline bool bIsNewUE5EnumNamesContainer = false;
 
 		/* Whether TWeakObjectPtr contains 'TagAtLastTest' */
 		inline bool bIsWeakObjectPtrWithoutTag = false;

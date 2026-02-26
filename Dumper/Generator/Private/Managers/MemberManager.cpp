@@ -160,6 +160,7 @@ void MemberManager::InitReservedNames()
 	MemberNames.AddReservedName("private");
 	MemberNames.AddReservedName("public");
 	MemberNames.AddReservedName("const");
+	MemberNames.AddReservedName("requires");
 
 	/* Unreal Engine typedefs */
 	MemberNames.AddReservedName("int8");
@@ -191,4 +192,19 @@ void MemberManager::InitReservedNames()
 	MemberNames.AddReservedName("NO_ERROR");
 	MemberNames.AddReservedName("EVENT_MAX");
 	MemberNames.AddReservedName("IGNORE");
+}
+
+void MemberManager::FixIncorrectNames()
+{
+	const UEStruct RotatorStruct = ObjectArray::FindStructFast("Rotator");
+
+	// Search for properties with incorrect casing, if "pitch" is found correct it to "Pitch"
+	if (const UEProperty PitchProperty = RotatorStruct.FindMember("pitch"))
+		StructManager_NameAccessHelper::ReplaceName(MemberNames, RotatorStruct, PitchProperty, "Pitch");
+
+	if (const UEProperty PitchProperty = RotatorStruct.FindMember("yaw"))
+		StructManager_NameAccessHelper::ReplaceName(MemberNames, RotatorStruct, PitchProperty, "Yaw");
+
+	if (const UEProperty PitchProperty = RotatorStruct.FindMember("roll"))
+		StructManager_NameAccessHelper::ReplaceName(MemberNames, RotatorStruct, PitchProperty, "Roll");
 }
