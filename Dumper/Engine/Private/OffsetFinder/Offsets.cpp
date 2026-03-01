@@ -326,7 +326,7 @@ void Off::Init()
 		std::cerr << std::format("Off::FField::Class: 0x{:X}\n", Off::FField::Class);
 
 		// Comment out this line if you're crashing here and see if the NewFindFFieldNameOffset might work!
-		Off::FField::Name = OffsetFinder::FindFFieldNameOffset();
+		Off::FField::Name = 0x20; // This is the most common offset for FField::Name, and if it's correct it makes finding the other FField offsets much more reliable. If this is wrong, the offsets that are found for FField::Flags and FFieldClass::CastFlags will also be wrong, but they will be fixed later in OffsetFinder::PostInitFNameSettings() when the correct FField::Name offset is known.
 		//Off::FField::Name = OffsetFinder::NewFindFFieldNameOffset();
 
 		if (Off::FField::Name == OffsetFinder::OffsetNotFound)
