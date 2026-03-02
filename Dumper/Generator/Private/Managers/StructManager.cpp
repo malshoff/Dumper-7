@@ -135,7 +135,7 @@ void StructManager::InitAlignmentsAndNames()
 		int32 NumElementsInStructStack = 0x0;
 
 		// Get a top to bottom list of a struct and all of its supers
-		for (UEStruct S = ObjAsStruct; S; S = S.GetSuper())
+		for (UEStruct S = ObjAsStruct; S && NumElementsInStructStack < MaxNumSuperClasses; S = S.GetSuper())
 		{
 			StructStack[NumElementsInStructStack] = S;
 			NumElementsInStructStack++;
@@ -217,9 +217,8 @@ void StructManager::InitSizesAndIsFinal()
 
 			if (It == StructInfoOverrides.end())
 			{
-				std::cerr << "\n\n\nDumper-7: Error, struct wasn't found in 'StructInfoOverrides'! Exiting...\n\n\n" << std::endl;
-				Sleep(10000);
-				exit(1);
+				std::cerr << "\n\n\nDumper-7: Error, struct wasn't found in 'StructInfoOverrides'! Skipping...\n\n\n" << std::endl;
+				continue;
 			}
 
 			StructInfo& Info = It->second;
@@ -261,7 +260,12 @@ void StructManager::Init()
 	* UObject however doesn't have a super, so this needs to be set manually.
 	*/
 	const UEObject UObjectClass = ObjectArray::FindClassFast("Object");
-	StructInfoOverrides.find(UObjectClass.GetIndex())->second.Alignment = sizeof(void*);
+	if (UObjectClass)
+	{
+		auto UObjIt = StructInfoOverrides.find(UObjectClass.GetIndex());
+		if (UObjIt != StructInfoOverrides.end())
+			UObjIt->second.Alignment = sizeof(void*);
+	}
 
 	/* I still hate whoever decided to call "UStruct" "Ustruct" on some UE versions. */
 	if (const UEObject UStructClass = ObjectArray::FindClassFast("struct"))
