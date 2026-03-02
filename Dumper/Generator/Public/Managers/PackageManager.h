@@ -228,6 +228,7 @@ private:
 
 private:
 	static void InitDependencies();
+	static void InitDependenciesForObject(UEObject Obj);
 	static void InitNames();
 	static void HandleCycles();
 

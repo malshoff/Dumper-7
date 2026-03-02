@@ -226,12 +226,13 @@ namespace UC
 
 	protected:
 		ArrayElementType* Data;
+		uint8 AllocatorPad[0x8]; // DBFZ UE4.17: TArray is 0x18 bytes {Data, AllocatorInstance, Num, Max}
 		int32 NumElements;
 		int32 MaxElements;
 
 	public:
 		TArray()
-			: Data(nullptr), NumElements(0), MaxElements(0)
+			: Data(nullptr), AllocatorPad{}, NumElements(0), MaxElements(0)
 		{
 		}
 
@@ -877,9 +878,9 @@ namespace UC
 	template<typename T0, typename T1> inline Iterators::TMapIterator<T0, T1> end  (const TMap<T0, T1>& Map) { return Iterators::TMapIterator<T0, T1>(Map, Map.GetAllocationFlags(), Map.NumAllocated()); }
 
 #ifdef _WIN64
-	static_assert(sizeof(TArray<int32>) == 0x10, "TArray has a wrong size!");
-	static_assert(sizeof(TSet<int32>) == 0x50, "TSet has a wrong size!");
-	static_assert(sizeof(TMap<int32, int32>) == 0x50, "TMap has a wrong size!");
+	static_assert(sizeof(TArray<int32>) == 0x18, "TArray has a wrong size!"); // DBFZ: 0x18 = {Data(8), AllocatorPad(8), Num(4), Max(4)}
+	static_assert(sizeof(TSet<int32>) == 0x58, "TSet has a wrong size!");
+	static_assert(sizeof(TMap<int32, int32>) == 0x58, "TMap has a wrong size!");
 #elif _WIN32
 	static_assert(sizeof(TArray<int32>) == 0x0C, "TArray has a wrong size!");
 	static_assert(sizeof(TSet<int32>) == 0x3C, "TSet has a wrong size!");

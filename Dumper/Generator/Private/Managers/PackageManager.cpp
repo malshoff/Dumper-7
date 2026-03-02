@@ -1,9 +1,19 @@
+#include <Windows.h>
 #include "Unreal/ObjectArray.h"
 
 #include "Managers/PackageManager.h"
 
 /* Required for marking cyclic-headers in the StructManager */
 #include "Managers/StructManager.h"
+
+/* Thin SEH wrapper — MSVC forbids __try in functions with C++ objects (C2712).
+ * Use this to protect code that might touch bad memory in packed games. */
+typedef void(*VoidFn)(void* ctx);
+static DWORD TrySEH(VoidFn fn, void* ctx)
+{
+	__try { fn(ctx); return 0; }
+	__except (EXCEPTION_EXECUTE_HANDLER) { return GetExceptionCode(); }
+}
 
 inline void BooleanOrEqual(bool& b1, bool b2)
 {
@@ -241,87 +251,106 @@ namespace PackageManagerUtils
 void PackageManager::InitDependencies()
 {
 	// Collects all packages required to compile this file
+	int32 SkippedObjects = 0;
 
 	for (auto Obj : ObjectArray())
 	{
 		if (Obj.HasAnyFlags(EObjectFlags::ClassDefaultObject))
 			continue;
 
-		int32 CurrentPackageIdx = Obj.GetPackageIndex();
+		/* Wrap per-object processing in SEH so one bad object doesn't abort everything */
+		struct ObjCtx { UEObject Obj; };
+		ObjCtx ctx{ Obj };
 
-		const bool bIsStruct = Obj.IsA(EClassCastFlags::Struct);
-		const bool bIsClass = Obj.IsA(EClassCastFlags::Class);
+		DWORD code = TrySEH([](void* p) {
+			ObjCtx& c = *static_cast<ObjCtx*>(p);
+			InitDependenciesForObject(c.Obj);
+		}, &ctx);
 
-		const bool bIsFunction = Obj.IsA(EClassCastFlags::Function);
-		const bool bIsEnum = Obj.IsA(EClassCastFlags::Enum);
+		if (code != 0)
+			SkippedObjects++;
+	}
 
-		if (bIsStruct && !bIsFunction)
+	if (SkippedObjects > 0)
+		std::cerr << "[PackageManager] Skipped " << SkippedObjects << " objects due to access violations\n";
+}
+
+void PackageManager::InitDependenciesForObject(UEObject Obj)
+{
+	int32 CurrentPackageIdx = Obj.GetPackageIndex();
+
+	const bool bIsStruct = Obj.IsA(EClassCastFlags::Struct);
+	const bool bIsClass = Obj.IsA(EClassCastFlags::Class);
+
+	const bool bIsFunction = Obj.IsA(EClassCastFlags::Function);
+	const bool bIsEnum = Obj.IsA(EClassCastFlags::Enum);
+
+	if (bIsStruct && !bIsFunction)
+	{
+		PackageInfo& Info = PackageInfos[CurrentPackageIdx];
+		Info.PackageIndex = CurrentPackageIdx;
+
+		UEStruct ObjAsStruct = Obj.Cast<UEStruct>();
+
+		const int32 StructIdx = ObjAsStruct.GetIndex();
+		const int32 StructPackageIdx = ObjAsStruct.GetPackageIndex();
+
+		DependencyListType& PackageDependencyList = bIsClass ? Info.PackageDependencies.ClassesDependencies : Info.PackageDependencies.StructsDependencies;
+		DependencyManager& ClassOrStructDependencyList = bIsClass ? Info.ClassesSorted : Info.StructsSorted;
+
+		std::unordered_set<int32> Dependencies = PackageManagerUtils::GetDependencies(ObjAsStruct, StructIdx);
+
+		ClassOrStructDependencyList.SetExists(StructIdx);
+
+		PackageManagerUtils::SetPackageDependencies(PackageDependencyList, Dependencies, StructPackageIdx, bIsClass);
+
+		if (!bIsClass)
+			PackageManagerUtils::AddStructDependencies(ClassOrStructDependencyList, Dependencies, StructIdx, StructPackageIdx);
+
+		/* for both struct and class */
+		if (UEStruct Super = ObjAsStruct.GetSuper())
 		{
-			PackageInfo& Info = PackageInfos[CurrentPackageIdx];
-			Info.PackageIndex = CurrentPackageIdx;
+			const int32 SuperPackageIdx = Super.GetPackageIndex();
 
-			UEStruct ObjAsStruct = Obj.Cast<UEStruct>();
-
-			const int32 StructIdx = ObjAsStruct.GetIndex();
-			const int32 StructPackageIdx = ObjAsStruct.GetPackageIndex();
-
-			DependencyListType& PackageDependencyList = bIsClass ? Info.PackageDependencies.ClassesDependencies : Info.PackageDependencies.StructsDependencies;
-			DependencyManager& ClassOrStructDependencyList = bIsClass ? Info.ClassesSorted : Info.StructsSorted;
-
-			std::unordered_set<int32> Dependencies = PackageManagerUtils::GetDependencies(ObjAsStruct, StructIdx);
-
-			ClassOrStructDependencyList.SetExists(StructIdx);
-
-			PackageManagerUtils::SetPackageDependencies(PackageDependencyList, Dependencies, StructPackageIdx, bIsClass);
-
-			if (!bIsClass)
-				PackageManagerUtils::AddStructDependencies(ClassOrStructDependencyList, Dependencies, StructIdx, StructPackageIdx);
-
-			/* for both struct and class */
-			if (UEStruct Super = ObjAsStruct.GetSuper())
+			if (SuperPackageIdx == StructPackageIdx)
 			{
-				const int32 SuperPackageIdx = Super.GetPackageIndex();
-
-				if (SuperPackageIdx == StructPackageIdx)
-				{
-					/* In-file sorting is only required if the super-class is inside of the same package */
-					ClassOrStructDependencyList.AddDependency(Obj.GetIndex(), Super.GetIndex());
-				}
-				else
-				{
-					/* A package can't depend on itself, super of a structs will always be in _"structs" file, same for classes and "_classes" files */
-					RequirementInfo& ReqInfo = PackageDependencyList[SuperPackageIdx];
-					BooleanOrEqual(ReqInfo.bShouldIncludeStructs, !bIsClass);
-					BooleanOrEqual(ReqInfo.bShouldIncludeClasses, bIsClass);
-				}
+				/* In-file sorting is only required if the super-class is inside of the same package */
+				ClassOrStructDependencyList.AddDependency(Obj.GetIndex(), Super.GetIndex());
 			}
-
-			if (!bIsClass)
-				continue;
-			
-			/* Add class-functions to package */
-			for (UEFunction Func : ObjAsStruct.GetFunctions())
+			else
 			{
-				Info.Functions.push_back(Func.GetIndex());
-
-				std::unordered_set<int32> ParamDependencies = PackageManagerUtils::GetDependencies(Func, Func.GetIndex());
-
-				BooleanOrEqual(Info.bHasParams, Func.HasMembers());
-
-				const int32 FuncPackageIndex = Func.GetPackageIndex();
-
-				/* Add dependencies to ParamDependencies and add enums only to class dependencies (forwarddeclaration of enum classes defaults to int) */
-				PackageManagerUtils::SetPackageDependencies(Info.PackageDependencies.ParametersDependencies, ParamDependencies, FuncPackageIndex, true);
-				PackageManagerUtils::AddEnumPackageDependencies(Info.PackageDependencies.ClassesDependencies, ParamDependencies, FuncPackageIndex, true);
+				/* A package can't depend on itself, super of a structs will always be in _"structs" file, same for classes and "_classes" files */
+				RequirementInfo& ReqInfo = PackageDependencyList[SuperPackageIdx];
+				BooleanOrEqual(ReqInfo.bShouldIncludeStructs, !bIsClass);
+				BooleanOrEqual(ReqInfo.bShouldIncludeClasses, bIsClass);
 			}
 		}
-		else if (bIsEnum)
-		{
-			PackageInfo& Info = PackageInfos[CurrentPackageIdx];
-			Info.PackageIndex = CurrentPackageIdx;
 
-			Info.Enums.push_back(Obj.GetIndex());
+		if (!bIsClass)
+			return;
+		
+		/* Add class-functions to package */
+		for (UEFunction Func : ObjAsStruct.GetFunctions())
+		{
+			Info.Functions.push_back(Func.GetIndex());
+
+			std::unordered_set<int32> ParamDependencies = PackageManagerUtils::GetDependencies(Func, Func.GetIndex());
+
+			BooleanOrEqual(Info.bHasParams, Func.HasMembers());
+
+			const int32 FuncPackageIndex = Func.GetPackageIndex();
+
+			/* Add dependencies to ParamDependencies and add enums only to class dependencies (forwarddeclaration of enum classes defaults to int) */
+			PackageManagerUtils::SetPackageDependencies(Info.PackageDependencies.ParametersDependencies, ParamDependencies, FuncPackageIndex, true);
+			PackageManagerUtils::AddEnumPackageDependencies(Info.PackageDependencies.ClassesDependencies, ParamDependencies, FuncPackageIndex, true);
 		}
+	}
+	else if (bIsEnum)
+	{
+		PackageInfo& Info = PackageInfos[CurrentPackageIdx];
+		Info.PackageIndex = CurrentPackageIdx;
+
+		Info.Enums.push_back(Obj.GetIndex());
 	}
 }
 
@@ -578,8 +607,12 @@ void PackageManager::Init()
 
 	PackageInfos.reserve(0x800);
 
+	std::cerr << "[PkgMgr] Starting InitDependencies...\n"; std::cerr.flush();
 	InitDependencies();
+	std::cerr << "[PkgMgr] InitDependencies done.\n"; std::cerr.flush();
+	std::cerr << "[PkgMgr] Starting InitNames...\n"; std::cerr.flush();
 	InitNames();
+	std::cerr << "[PkgMgr] InitNames done.\n"; std::cerr.flush();
 }
 
 void PackageManager::PostInit()

@@ -767,6 +767,9 @@ UEObject UEClass::GetDefaultObject() const
 
 TArray<FImplementedInterface> UEClass::GetImplementedInterfaces() const
 {
+	if (Off::UClass::ImplementedInterfaces < 0)
+		return TArray<FImplementedInterface>();
+
 	return *reinterpret_cast<TArray<FImplementedInterface>*>(Object + Off::UClass::ImplementedInterfaces);
 }
 

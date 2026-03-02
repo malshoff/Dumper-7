@@ -652,17 +652,44 @@ int32_t OffsetFinder::FindEnumNamesOffset()
 {
 	std::vector<std::pair<void*, int32_t>> Infos;
 
-	Infos.push_back({ ObjectArray::FindObjectFast("ENetRole", EClassCastFlags::Enum).GetAddress(), 0x5 });
-	Infos.push_back({ ObjectArray::FindObjectFast("ETraceTypeQuery", EClassCastFlags::Enum).GetAddress(), 0x22 });
+	auto NetRole = ObjectArray::FindObjectFast("ENetRole", EClassCastFlags::Enum);
+	auto TraceQuery = ObjectArray::FindObjectFast("ETraceTypeQuery", EClassCastFlags::Enum);
 
-	int UEnumNumValuesOffset = FindOffset(Infos);
+	if (!NetRole || !TraceQuery)
+	{
+		std::cerr << "FindEnumNamesOffset: Primary enum objects not found, trying fallback...\n";
+	}
+	else
+	{
+		Infos.push_back({ NetRole.GetAddress(), 0x5 });
+		Infos.push_back({ TraceQuery.GetAddress(), 0x22 });
+	}
+
+	int UEnumNumValuesOffset = Infos.size() >= 2 ? FindOffset(Infos) : OffsetNotFound;
 
 	if (UEnumNumValuesOffset == OffsetNotFound)
 	{
-		Infos[0] = { ObjectArray::FindObjectFast("EAlphaBlendOption", EClassCastFlags::Enum).GetAddress(), 0x10 };
-		Infos[1] = { ObjectArray::FindObjectFast("EUpdateRateShiftBucket", EClassCastFlags::Enum).GetAddress(), 0x8 };
+		Infos.clear();
+
+		auto AlphaBlend = ObjectArray::FindObjectFast("EAlphaBlendOption", EClassCastFlags::Enum);
+		auto UpdateRate = ObjectArray::FindObjectFast("EUpdateRateShiftBucket", EClassCastFlags::Enum);
+
+		if (!AlphaBlend || !UpdateRate)
+		{
+			std::cerr << "FindEnumNamesOffset: Fallback enum objects not found either!\n";
+			return OffsetNotFound;
+		}
+
+		Infos.push_back({ AlphaBlend.GetAddress(), 0x10 });
+		Infos.push_back({ UpdateRate.GetAddress(), 0x8 });
 
 		UEnumNumValuesOffset = FindOffset(Infos);
+	}
+
+	if (UEnumNumValuesOffset == OffsetNotFound || !Infos[0].first)
+	{
+		std::cerr << "FindEnumNamesOffset: Could not determine UEnum::Names offset!\n";
+		return OffsetNotFound;
 	}
 
 	InializeUEnumSettings(Infos[0].first, UEnumNumValuesOffset);

@@ -1,4 +1,5 @@
 #include "Managers/EnumManager.h"
+#include "OffsetFinder/Offsets.h"
 
 namespace EnumInitHelper
 {
@@ -137,6 +138,10 @@ void EnumManager::InitInternal()
 			/* Add name to override info */
 			EnumInfo& NewOrExistingInfo = EnumInfoOverrides[Obj.GetIndex()];
 			NewOrExistingInfo.Name = UniqueEnumNameTable.FindOrAdd(ObjAsEnum.GetEnumPrefixedName()).first;
+
+			/* Skip name/value pair initialization if UEnum::Names offset was not found */
+			if (Off::UEnum::Names < 0)
+				continue;
 
 			uint64 EnumMaxValue = 0x0;
 

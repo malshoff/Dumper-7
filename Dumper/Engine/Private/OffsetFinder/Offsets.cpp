@@ -11,6 +11,22 @@
 #include "Platform.h"
 #include "Architecture.h"
 
+/* Thin SEH wrapper — must be in its own function because MSVC forbids __try
+ * in functions with C++ objects that need unwinding (error C2712). */
+static constexpr int32_t SAFE_FIND_EXCEPTION_RESULT = 0x7FFFFFFE;
+
+static int32_t TrySafeFindOffset(int32_t(*fn)())
+{
+	__try
+	{
+		return fn();
+	}
+	__except (EXCEPTION_EXECUTE_HANDLER)
+	{
+		return SAFE_FIND_EXCEPTION_RESULT;
+	}
+}
+
 
 void Off::InSDK::ProcessEvent::InitPE_Windows()
 {
@@ -358,32 +374,49 @@ void Off::Init()
 
 	Off::UClass::ImplementedInterfaces = OffsetFinder::FindImplementedInterfacesOffset();
 	std::cerr << std::format("Off::UClass::ImplementedInterfaces: 0x{:X}\n", Off::UClass::ImplementedInterfaces);
+	std::cerr.flush();
 
-	Off::UEnum::Names = OffsetFinder::FindEnumNamesOffset();
+	/* DBFZ: Many of the remaining offset finders search for specific UE objects
+	 * (enums, functions, properties) that may not exist in stripped/packed games.
+	 * Wrap each call via TrySafeFindOffset so a single failure doesn't abort init. */
+
+	auto SafeFind = [](int32_t(*fn)(), const char* name) -> int32_t
+	{
+		int32_t result = TrySafeFindOffset(fn);
+		if (result == SAFE_FIND_EXCEPTION_RESULT)
+		{
+			std::cerr << "[SAFE] Exception in " << name << ", using OffsetNotFound\n";
+			result = OffsetFinder::OffsetNotFound;
+		}
+		std::cerr.flush();
+		return result;
+	};
+
+	Off::UEnum::Names = SafeFind(OffsetFinder::FindEnumNamesOffset, "FindEnumNamesOffset");
 	std::cerr << std::format("Off::UEnum::Names: 0x{:X}\n", Off::UEnum::Names) << std::endl;
 
-	Off::UFunction::FunctionFlags = OffsetFinder::FindFunctionFlagsOffset();
+	Off::UFunction::FunctionFlags = SafeFind(OffsetFinder::FindFunctionFlagsOffset, "FindFunctionFlagsOffset");
 	std::cerr << std::format("Off::UFunction::FunctionFlags: 0x{:X}\n", Off::UFunction::FunctionFlags);
 
-	Off::UFunction::ExecFunction = OffsetFinder::FindFunctionNativeFuncOffset();
+	Off::UFunction::ExecFunction = SafeFind(OffsetFinder::FindFunctionNativeFuncOffset, "FindFunctionNativeFuncOffset");
 	std::cerr << std::format("Off::UFunction::ExecFunction: 0x{:X}\n", Off::UFunction::ExecFunction) << std::endl;
 
-	Off::Property::ElementSize = OffsetFinder::FindElementSizeOffset();
+	Off::Property::ElementSize = SafeFind(OffsetFinder::FindElementSizeOffset, "FindElementSizeOffset");
 	std::cerr << std::format("Off::Property::ElementSize: 0x{:X}\n", Off::Property::ElementSize);
 
-	Off::Property::ArrayDim = OffsetFinder::FindArrayDimOffset();
+	Off::Property::ArrayDim = SafeFind(OffsetFinder::FindArrayDimOffset, "FindArrayDimOffset");
 	std::cerr << std::format("Off::Property::ArrayDim: 0x{:X}\n", Off::Property::ArrayDim);
 
-	Off::Property::Offset_Internal = OffsetFinder::FindOffsetInternalOffset();
+	Off::Property::Offset_Internal = SafeFind(OffsetFinder::FindOffsetInternalOffset, "FindOffsetInternalOffset");
 	std::cerr << std::format("Off::Property::Offset_Internal: 0x{:X}\n", Off::Property::Offset_Internal);
 
-	Off::Property::PropertyFlags = OffsetFinder::FindPropertyFlagsOffset();
+	Off::Property::PropertyFlags = SafeFind(OffsetFinder::FindPropertyFlagsOffset, "FindPropertyFlagsOffset");
 	std::cerr << std::format("Off::Property::PropertyFlags: 0x{:X}\n", Off::Property::PropertyFlags);
 
-	Off::BoolProperty::Base = OffsetFinder::FindBoolPropertyBaseOffset();
+	Off::BoolProperty::Base = SafeFind(OffsetFinder::FindBoolPropertyBaseOffset, "FindBoolPropertyBaseOffset");
 	std::cerr << std::format("UBoolProperty::Base: 0x{:X}\n", Off::BoolProperty::Base) << std::endl;
 
-	Off::EnumProperty::Base = OffsetFinder::FindEnumPropertyBaseOffset();
+	Off::EnumProperty::Base = SafeFind(OffsetFinder::FindEnumPropertyBaseOffset, "FindEnumPropertyBaseOffset");
 	std::cerr << std::format("Off::EnumProperty::Base: 0x{:X}\n", Off::EnumProperty::Base) << std::endl;
 
 
