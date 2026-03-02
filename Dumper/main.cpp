@@ -52,25 +52,10 @@ static DWORD TryGetGameInfo()
 
 typedef void (*GeneratorFunc)();
 
-// C++ try/catch wrapper to capture exception messages
-static void RunGeneratorWithCppCatch(GeneratorFunc fn, const char* name)
-{
-	try
-	{
-		fn();
-	}
-	catch (const std::exception& e)
-	{
-		std::cerr << "[RunDump] *** C++ EXCEPTION in " << name << ": " << e.what() << " ***\n";
-	}
-	catch (...)
-	{
-		std::cerr << "[RunDump] *** UNKNOWN C++ EXCEPTION in " << name << " ***\n";
-	}
-}
-
-// SEH wrapper as fallback for non-C++ exceptions (access violations, etc.)
-static DWORD TryRunGenerator(GeneratorFunc fn)
+// SEH wrapper for generators — C++ try/catch does NOT work in manually
+// mapped DLLs (CRT exception handling infrastructure isn't initialized).
+// SEH __try/__except works because the driver registers .pdata correctly.
+static DWORD TryRunGeneratorSEH(GeneratorFunc fn)
 {
 	__try
 	{
@@ -82,6 +67,8 @@ static DWORD TryRunGenerator(GeneratorFunc fn)
 		return GetExceptionCode();
 	}
 }
+
+
 
 static DWORD TryRunDump();
 
@@ -110,7 +97,7 @@ static void RunDump()
 
 	std::cerr << "[RunDump] Calling InitEngineCore...\n";
 	std::cerr.flush();
-	DWORD ecCode = TryRunGenerator([]() { Generator::InitEngineCore(); });
+	DWORD ecCode = TryRunGeneratorSEH([]() { Generator::InitEngineCore(); });
 	if (ecCode != 0)
 	{
 		std::cerr << "[RunDump] *** EXCEPTION in InitEngineCore: 0x" << std::hex << ecCode << std::dec << " ***\n";
@@ -123,7 +110,7 @@ static void RunDump()
 
 	std::cerr << "[RunDump] Calling InitInternal...\n";
 	std::cerr.flush();
-	DWORD iiCode = TryRunGenerator([]() { Generator::InitInternal(); });
+	DWORD iiCode = TryRunGeneratorSEH([]() { Generator::InitInternal(); });
 	if (iiCode != 0)
 	{
 		std::cerr << "[RunDump] *** EXCEPTION in InitInternal: 0x" << std::hex << iiCode << std::dec << " ***\n";
@@ -167,7 +154,17 @@ static void RunDump()
 	{
 		std::cerr << "[RunDump] Running " << g.name << "...\n";
 		std::cerr.flush();
-		RunGeneratorWithCppCatch(g.fn, g.name);
+		DWORD genCode = TryRunGeneratorSEH(g.fn);
+		if (genCode != 0)
+		{
+			std::cerr << "[RunDump] *** EXCEPTION in " << g.name << ": 0x"
+					  << std::hex << genCode << std::dec << " ***\n";
+			std::cerr << "[RunDump] Continuing to next generator...\n";
+		}
+		else
+		{
+			std::cerr << "[RunDump] " << g.name << " done.\n";
+		}
 	}
 
 	auto DumpFinishTime = std::chrono::high_resolution_clock::now();
