@@ -153,6 +153,31 @@ namespace
 		return { ImageBase, NtHeader->OptionalHeader.SizeOfImage };
 	}
 
+	/*
+	* Checks whether a PE section is safe for Dumper-7's memory-probing scan.
+	* 
+	* Some packed/protected binaries have massive RWX (Read-Write-Execute) sections
+	* used as packer staging areas (e.g. ".edata" in ArcSys games). Scanning these
+	* sections causes heap corruption because packed data can pass IsBadReadPtr()
+	* checks yet corrupt the game's allocator when dereferenced.
+	*
+	* This filter is universal: normal UE games never have large RWX sections,
+	* so it only triggers on packed binaries.
+	*/
+	inline bool IsSectionSafeToScan(const IMAGE_SECTION_HEADER* Section)
+	{
+		constexpr DWORD RWX_MASK = IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE | IMAGE_SCN_MEM_EXECUTE;
+		constexpr DWORD LARGE_SECTION_THRESHOLD = 0xA00000; // 10 MB
+
+		const bool bIsRWX = (Section->Characteristics & RWX_MASK) == RWX_MASK;
+		const bool bIsLarge = Section->Misc.VirtualSize > LARGE_SECTION_THRESHOLD;
+
+		if (bIsRWX && bIsLarge)
+			return false;
+
+		return true;
+	}
+
 	inline const IMAGE_SECTION_HEADER* IterateAllSectionObjects(const uintptr_t ImageBase, const std::function<bool(const IMAGE_SECTION_HEADER*)>& Callback)
 	{
 		if (ImageBase == 0)
@@ -173,6 +198,10 @@ namespace
 			const IMAGE_SECTION_HEADER* CurrentSection = &Sections[i];
 
 			if ((CurrentSection->Characteristics & IMAGE_SCN_MEM_READ) == 0)
+				continue;
+
+			// Skip large RWX sections (packer staging areas)
+			if (!IsSectionSafeToScan(CurrentSection))
 				continue;
 
 			if (Callback(CurrentSection))

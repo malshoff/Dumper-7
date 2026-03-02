@@ -44,7 +44,11 @@ void Generator::InitEngineCore()
 
 	ObjectArray::Init();
 
-	CALL_PLATFORM_SPECIFIC_FUNCTION(FName::Init);
+	/* Dragon Ball FighterZ (UE4.17) — GNames override required because
+	 * the auto-scan relies on kernel32.dll imports (EnterCriticalSection / InitializeSRWLock)
+	 * which are stripped in this packed binary. Offset found via IDA: FName::StaticInit
+	 * references TNameEntryArray global at qword_143F6BD08 (RVA 0x3F6BD08). */
+	FName::Init(0x3F6BD08, FName::EOffsetOverrideType::GNames, false);
 
 	Off::Init();
 	PropertySizes::Init();
