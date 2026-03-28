@@ -327,6 +327,14 @@ void Generator::InitEngineCore()
 	static auto initPE = []() { CALL_PLATFORM_SPECIFIC_FUNCTION(Off::InSDK::ProcessEvent::InitPE); };
 	SEH_Call(+initPE, "InitPE");
 	SEH_Call(Off::InSDK::World::InitGWorld, "InitGWorld");
+
+	// Goals.exe: InitGWorld fails because iterating encrypted GObjects doesn't find
+	// a live UWorld instance. But GWorld is NOT encrypted — it's a plain UWorld** at
+	// RVA 0xAE9A0A8. Set it manually if auto-detection failed.
+	if (Off::InSDK::World::GWorld == 0x0) {
+		Off::InSDK::World::GWorld = 0xAE9A0A8;
+		std::cerr << "[Goals] Manual GWorld override -> RVA 0xAE9A0A8\n";
+	}
 	SEH_Call(Off::InSDK::Text::InitTextOffsets, "InitTextOffsets");
 	SEH_Call(InitSettings, "InitSettings");
 }

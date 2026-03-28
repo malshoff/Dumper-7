@@ -372,6 +372,7 @@ Off::InSDK::ObjArray::FUObjectItemSize: 0x10
 Off::InSDK::UDataTable::RowMap:   0x68
 PE-Offset:                        0x157CCF0
 PE-Index:                         0x53
+GWorld:                           0xAE9A0A8  (NOT encrypted — raw UWorld*)
 ```
 
 ---
@@ -388,6 +389,9 @@ PE-Index:                         0x53
 | `0x15A4A80` | `UObject::GetFullName` | Reveals encrypted field layout |
 | `0x13FD6E0` | `FField::FindPropertyByName?` | Uses same SIMD key for pointer validation |
 | `0x157CCF0` | `ProcessEvent` | Virtual function for blueprint event dispatch |
+| `0x4359F80` | `UWorld::CleanupWorld` | Clears GWorld when world is destroyed |
+| `0x440A690` | `UEngine::LoadMap` | Sets GWorld when loading a new map |
+| `0x4403B00` | `UEngine::GetWorldFromContextObject` | Returns GWorld from context, fallback to GWorld global |
 
 ### Key Global Variables
 
@@ -397,6 +401,7 @@ PE-Index:                         0x53
 | `0xAC3E559` | `bPoolInitialized` | FNamePool init guard flag |
 | `0xADD28E8` | `GObjects` | FChunkedFixedUObjectArray |
 | `0x840BFF0` | `XOR_Key` | `xmmword_14840BFF0` = `37 38 ED AE F4 F2 17 FA` |
+| `0xAE9A0A8` | `GWorld` | `UWorld**` — NOT encrypted, raw pointer (44 xrefs) |
 
 ---
 
