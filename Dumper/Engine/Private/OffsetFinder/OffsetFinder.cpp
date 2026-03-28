@@ -15,11 +15,18 @@ int32_t OffsetFinder::FindUObjectFlagsOffset()
 
 	for (int i = 0; i < 0x20; i++)
 	{
+		void* ObjAddr = ObjectArray::GetByIndex(i).GetAddress();
+		if (!ObjAddr || Platform::IsBadReadPtr(ObjAddr))
+		{
+			std::cerr << "[DIAG] GetByIndex(" << i << ") returned bad pointer: " << ObjAddr << "\n"; std::cerr.flush();
+			continue;
+		}
+
 		int Offset = 0x0;
 		while (Offset != OffsetNotFound)
 		{
 			// Look for 0x43 in this object, as it is a really common value for UObject::Flags
-			Offset = FindOffset(std::vector{ std::pair{ ObjectArray::GetByIndex(i).GetAddress(), EnumFlagValueToSearch } }, Offset, 0x40);
+			Offset = FindOffset(std::vector{ std::pair{ ObjAddr, EnumFlagValueToSearch } }, Offset, 0x40);
 
 			if (Offset == OffsetNotFound)
 				break; // Early exit
@@ -34,7 +41,11 @@ int32_t OffsetFinder::FindUObjectFlagsOffset()
 				if (Counter++ == 0x100)
 					break;
 
-				const int32 TypedValueAtOffset = *reinterpret_cast<int32*>(reinterpret_cast<uintptr_t>(Obj.GetAddress()) + Offset);
+				void* Addr = Obj.GetAddress();
+				if (!Addr || Platform::IsBadReadPtr(Addr))
+					continue;
+
+				const int32 TypedValueAtOffset = *reinterpret_cast<int32*>(reinterpret_cast<uintptr_t>(Addr) + Offset);
 
 				if (TypedValueAtOffset == EnumFlagValueToSearch)
 					NumObjectsWithFlagAtOffset++;
@@ -138,7 +149,7 @@ int32_t FindNameOffsetForSomeClass(std::function<bool(int32_t Value)> IsPotentia
 	constexpr auto MaxAllowedNamesWithLowCmpIdx = 0x40;
 
 
-	for (int i = sizeof(void*); i <= 0x40; i += 0x4)
+	for (int i = sizeof(void*); i <= 0x80; i += 0x4)
 	{
 		if (!IsPotentialValidOffset(i))
 			continue;
@@ -229,7 +240,7 @@ int32_t OffsetFinder::FindUObjectOuterOffset()
 
 		while (Offset != OffsetNotFound)
 		{
-			Offset = GetValidPointerOffset(ObjA, ObjB, Offset + sizeof(void*), 0x50);
+			Offset = GetValidPointerOffset(ObjA, ObjB, Offset + sizeof(void*), 0x80);
 
 			// Make sure we didn't re-find the Class offset or Index (if the Index filed is a valid pionter for some ungodly reason). 
 			if (Offset != Off::UObject::Class && Offset != Off::UObject::Index)
@@ -431,7 +442,7 @@ int32_t OffsetFinder::FindUFieldNextOffset()
 	const auto HighestUObjectOffset = std::max({ Off::UObject::Index, Off::UObject::Name, Off::UObject::Flags, Off::UObject::Outer, Off::UObject::Class });
 #define max(a,b)            (((a) > (b)) ? (a) : (b))
 
-	return GetValidPointerOffset(KismetSystemLibraryChild, KismetStringLibraryChild, Align(HighestUObjectOffset + 0x4, static_cast<int>(sizeof(void*))), 0x60);
+	return GetValidPointerOffset(KismetSystemLibraryChild, KismetStringLibraryChild, Align(HighestUObjectOffset + 0x4, static_cast<int>(sizeof(void*))), 0xA0);
 }
 
 /* FField */
@@ -440,7 +451,7 @@ int32_t OffsetFinder::FindFFieldNextOffset()
 	const void* GuidChildren = ObjectArray::FindStructFast("Guid").GetChildProperties().GetAddress();
 	const void* VectorChildren = ObjectArray::FindStructFast("Vector").GetChildProperties().GetAddress();
 
-	return GetValidPointerOffset(GuidChildren, VectorChildren, Off::FField::Owner + 0x8, 0x48);
+	return GetValidPointerOffset(GuidChildren, VectorChildren, Off::FField::Owner + 0x8, 0x80);
 }
 
 int32_t OffsetFinder::FindFFieldNameOffset()
@@ -454,7 +465,7 @@ int32_t OffsetFinder::FindFFieldNameOffset()
 	if ((GuidChildName == "A" || GuidChildName == "D") && (VectorChildName == "X" || VectorChildName == "Z"))
 		return Off::FField::Name;
 
-	for (Off::FField::Name = Off::FField::Owner; Off::FField::Name < 0x40; Off::FField::Name += 4)
+	for (Off::FField::Name = Off::FField::Owner; Off::FField::Name < 0x80; Off::FField::Name += 4)
 	{
 		GuidChildName = GuidChild.GetName();
 		VectorChildName = VectorChild.GetName();
@@ -712,7 +723,7 @@ int32_t OffsetFinder::FindChildPropertiesOffset()
 	const void* ObjA = ObjectArray::FindStructFast("Color").GetAddress();
 	const void* ObjB = ObjectArray::FindStructFast("Guid").GetAddress();
 
-	return GetValidPointerOffset(ObjA, ObjB, Off::UStruct::Children + 0x08, 0x80);
+	return GetValidPointerOffset(ObjA, ObjB, Off::UStruct::Children + 0x08, 0x120);
 }
 
 int32_t OffsetFinder::FindStructSizeOffset()

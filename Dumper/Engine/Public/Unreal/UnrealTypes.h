@@ -125,4 +125,8 @@ public:
 	static std::string CompIdxToString(int CmpIdx);
 
 	static void* DEBUGGetAppendString();
+
+	/* Goals.exe: needed to override AppendString with a decrypted wrapper */
+	static void SetAppendString(void(*Func)(const void*, FString&)) { AppendString = Func; }
+	static void SetCustomToStr(std::wstring(*Func)(const void* Name)) { ToStr = Func; }
 };

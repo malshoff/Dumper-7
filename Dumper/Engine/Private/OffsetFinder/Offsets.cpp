@@ -250,8 +250,58 @@ void Off::InSDK::Text::InitTextOffsets()
 	std::cerr << std::format("Off::InSDK::Text::InTextDataStringOffset: 0x{:X}\n\n", Off::InSDK::Text::InTextDataStringOffset);
 }
 
+// SEH wrapper: catches access violations from bad FName/object reads.
+// Must be separate function — __try can't coexist with C++ destructors.
+__declspec(noinline) static int32 SEH_FindOffset(int32(*Fn)(), const char* Name)
+{
+	int32 result = OffsetFinder::OffsetNotFound;
+	__try {
+		result = Fn();
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		char buf[128];
+		sprintf_s(buf, "[SEH] %s crashed (0x%08X), using default\n", Name, GetExceptionCode());
+		OutputDebugStringA(buf);
+		// Also write to stderr for console
+		DWORD written;
+		WriteFile(GetStdHandle(STD_ERROR_HANDLE), buf, (DWORD)strlen(buf), &written, NULL);
+	}
+	return result;
+}
+
+// Overload for functions that take an int32 parameter
+__declspec(noinline) static int32 SEH_FindOffsetI(int32(*Fn)(int32), int32 Arg, const char* Name)
+{
+	int32 result = OffsetFinder::OffsetNotFound;
+	__try {
+		result = Fn(Arg);
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		char buf[128];
+		sprintf_s(buf, "[SEH] %s crashed (0x%08X), using default\n", Name, GetExceptionCode());
+		OutputDebugStringA(buf);
+		DWORD written;
+		WriteFile(GetStdHandle(STD_ERROR_HANDLE), buf, (DWORD)strlen(buf), &written, NULL);
+	}
+	return result;
+}
+
+// Void wrapper for functions that don't return
+__declspec(noinline) static void SEH_Call(void(*Fn)(), const char* Name)
+{
+	__try {
+		Fn();
+	} __except(EXCEPTION_EXECUTE_HANDLER) {
+		char buf[128];
+		sprintf_s(buf, "[SEH] %s crashed (0x%08X), skipping\n", Name, GetExceptionCode());
+		OutputDebugStringA(buf);
+		DWORD written;
+		WriteFile(GetStdHandle(STD_ERROR_HANDLE), buf, (DWORD)strlen(buf), &written, NULL);
+	}
+}
+
 void Off::Init()
 {
+	std::cerr << "[Off::Init] entered\n"; std::cerr.flush();
+
 	auto OverwriteIfInvalidOffset = [](int32& Offset, int32 DefaultValue)
 	{
 		if (Offset == OffsetFinder::OffsetNotFound)
@@ -261,51 +311,60 @@ void Off::Init()
 		}
 	};
 
-	Off::UObject::Flags = OffsetFinder::FindUObjectFlagsOffset();
+	std::cerr << "[Off::Init] step: FindUObjectFlagsOffset\n"; std::cerr.flush();
+	Off::UObject::Flags = SEH_FindOffset(OffsetFinder::FindUObjectFlagsOffset, "FindUObjectFlagsOffset");
 	OverwriteIfInvalidOffset(Off::UObject::Flags, sizeof(void*)); // Default to right after VTable
 	std::cerr << std::format("Off::UObject::Flags: 0x{:X}\n", Off::UObject::Flags);
 
-	Off::UObject::Index = OffsetFinder::FindUObjectIndexOffset();
+	std::cerr << "[Off::Init] step: FindUObjectIndexOffset\n"; std::cerr.flush();
+	Off::UObject::Index = SEH_FindOffset(OffsetFinder::FindUObjectIndexOffset, "FindUObjectIndexOffset");
 	OverwriteIfInvalidOffset(Off::UObject::Index, (Off::UObject::Flags + sizeof(int32))); // Default to right after Flags
 	std::cerr << std::format("Off::UObject::Index: 0x{:X}\n", Off::UObject::Index);
 
-	Off::UObject::Class = OffsetFinder::FindUObjectClassOffset();
+	std::cerr << "[Off::Init] step: FindUObjectClassOffset\n"; std::cerr.flush();
+	Off::UObject::Class = SEH_FindOffset(OffsetFinder::FindUObjectClassOffset, "FindUObjectClassOffset");
 	OverwriteIfInvalidOffset(Off::UObject::Class, (Off::UObject::Index + sizeof(int32))); // Default to right after Index
 	std::cerr << std::format("Off::UObject::Class: 0x{:X}\n", Off::UObject::Class);
 
-	Off::UObject::Outer = OffsetFinder::FindUObjectOuterOffset();
+	std::cerr << "[Off::Init] step: FindUObjectOuterOffset\n"; std::cerr.flush();
+	Off::UObject::Outer = SEH_FindOffset(OffsetFinder::FindUObjectOuterOffset, "FindUObjectOuterOffset");
 	std::cerr << std::format("Off::UObject::Outer: 0x{:X}\n", Off::UObject::Outer);
 
-	Off::UObject::Name = OffsetFinder::FindUObjectNameOffset();
+	std::cerr << "[Off::Init] step: FindUObjectNameOffset\n"; std::cerr.flush();
+	Off::UObject::Name = SEH_FindOffset(OffsetFinder::FindUObjectNameOffset, "FindUObjectNameOffset");
 	OverwriteIfInvalidOffset(Off::UObject::Name, (Off::UObject::Class + sizeof(void*))); // Default to right after Class
 	std::cerr << std::format("Off::UObject::Name: 0x{:X}\n\n", Off::UObject::Name);
 
 	OverwriteIfInvalidOffset(Off::UObject::Outer, (Off::UObject::Name + sizeof(int32) + sizeof(int32)));  // Default to right after Name
 
-	OffsetFinder::InitFNameSettings();
+	std::cerr << "[Off::Init] step: InitFNameSettings\n"; std::cerr.flush();
+	SEH_Call(OffsetFinder::InitFNameSettings, "InitFNameSettings");
 
-	::NameArray::PostInit();
+	std::cerr << "[Off::Init] step: NameArray::PostInit\n"; std::cerr.flush();
+	SEH_Call(::NameArray::PostInit, "NameArray::PostInit");
 
 	// Castflags needs to stay here since the FindChildOffset() uses CastFlags
-	Off::UClass::CastFlags = OffsetFinder::FindCastFlagsOffset();
+	std::cerr << "[Off::Init] step: FindCastFlagsOffset\n"; std::cerr.flush();
+	Off::UClass::CastFlags = SEH_FindOffset(OffsetFinder::FindCastFlagsOffset, "FindCastFlagsOffset");
 	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags);
 
-	Off::UStruct::Children = OffsetFinder::FindChildOffset();
+	std::cerr << "[Off::Init] step: FindChildOffset\n"; std::cerr.flush();
+	Off::UStruct::Children = SEH_FindOffset(OffsetFinder::FindChildOffset, "FindChildOffset");
 	std::cerr << std::format("Off::UStruct::Children: 0x{:X}\n", Off::UStruct::Children);
 
-	Off::UField::Next = OffsetFinder::FindUFieldNextOffset();
+	Off::UField::Next = SEH_FindOffset(OffsetFinder::FindUFieldNextOffset, "FindUFieldNextOffset");
 	std::cerr << std::format("Off::UField::Next: 0x{:X}\n", Off::UField::Next);
 
-	Off::UStruct::SuperStruct = OffsetFinder::FindSuperOffset();
+	Off::UStruct::SuperStruct = SEH_FindOffset(OffsetFinder::FindSuperOffset, "FindSuperOffset");
 	std::cerr << std::format("Off::UStruct::SuperStruct: 0x{:X}\n", Off::UStruct::SuperStruct);
 
-	Off::UStruct::Size = OffsetFinder::FindStructSizeOffset();
+	Off::UStruct::Size = SEH_FindOffset(OffsetFinder::FindStructSizeOffset, "FindStructSizeOffset");
 	std::cerr << std::format("Off::UStruct::Size: 0x{:X}\n", Off::UStruct::Size);
 
-	Off::UStruct::MinAlignment = OffsetFinder::FindMinAlignmentOffset();
+	Off::UStruct::MinAlignment = SEH_FindOffset(OffsetFinder::FindMinAlignmentOffset, "FindMinAlignmentOffset");
 	std::cerr << std::format("Off::UStruct::MinAlignment: 0x{:X}\n", Off::UStruct::MinAlignment);
 
-	Off::UClass::CastFlags = OffsetFinder::FindCastFlagsOffset();
+	Off::UClass::CastFlags = SEH_FindOffset(OffsetFinder::FindCastFlagsOffset, "FindCastFlagsOffset(2)");
 	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags);
 
 	// Castflags become available for use
@@ -314,23 +373,30 @@ void Off::Init()
 	{
 		std::cerr << std::format("\nGame uses FProperty system\n\n");
 
-		Off::UStruct::ChildProperties = OffsetFinder::FindChildPropertiesOffset();
+		Off::UStruct::ChildProperties = SEH_FindOffset(OffsetFinder::FindChildPropertiesOffset, "FindChildPropertiesOffset");
 		std::cerr << std::format("Off::UStruct::ChildProperties: 0x{:X}\n", Off::UStruct::ChildProperties);
 
-		OffsetFinder::FixupHardcodedOffsets(); // must be called after FindChildPropertiesOffset 
+		SEH_Call(OffsetFinder::FixupHardcodedOffsets, "FixupHardcodedOffsets"); // must be called after FindChildPropertiesOffset 
 
-		Off::FField::Next = OffsetFinder::FindFFieldNextOffset();
+		Off::FField::Next = SEH_FindOffset(OffsetFinder::FindFFieldNextOffset, "FindFFieldNextOffset");
 		std::cerr << std::format("Off::FField::Next: 0x{:X}\n", Off::FField::Next);
 
-		Off::FField::Class = OffsetFinder::FindFFieldClassOffset();
+		Off::FField::Class = SEH_FindOffset(OffsetFinder::FindFFieldClassOffset, "FindFFieldClassOffset");
 		std::cerr << std::format("Off::FField::Class: 0x{:X}\n", Off::FField::Class);
 
 		// Comment out this line if you're crashing here and see if the NewFindFFieldNameOffset might work!
-		Off::FField::Name = OffsetFinder::FindFFieldNameOffset();
+		Off::FField::Name = SEH_FindOffset(OffsetFinder::FindFFieldNameOffset, "FindFFieldNameOffset");
 		//Off::FField::Name = OffsetFinder::NewFindFFieldNameOffset();
 
 		if (Off::FField::Name == OffsetFinder::OffsetNotFound)
-			Off::FField::Name = OffsetFinder::NewFindFFieldNameOffset();
+			Off::FField::Name = SEH_FindOffset(OffsetFinder::NewFindFFieldNameOffset, "NewFindFFieldNameOffset");
+
+		// [Goals] Fallback: discovered via hexdump probe that FField::Name is at +0x48
+		if (Off::FField::Name == OffsetFinder::OffsetNotFound)
+		{
+			Off::FField::Name = 0x48;
+			std::cerr << std::format("[Goals] FField::Name override -> 0x{:X}\n", Off::FField::Name);
+		}
 
 		std::cerr << std::format("Off::FField::Name: 0x{:X}\n", Off::FField::Name);
 
@@ -341,49 +407,49 @@ void Off::Init()
 		Off::FField::Flags = Off::FField::Name + Off::InSDK::Name::FNameSize;
 		std::cerr << std::format("Off::FField::Flags: 0x{:X}\n", Off::FField::Flags);
 
-		Off::FField::EditorOnlyMetadata = OffsetFinder::FindFFieldEditorOnlyMetaDataOffset();
+		Off::FField::EditorOnlyMetadata = SEH_FindOffset(OffsetFinder::FindFFieldEditorOnlyMetaDataOffset, "FindFFieldEditorOnlyMetaDataOffset");
 		if (Off::FField::EditorOnlyMetadata != OffsetFinder::OffsetNotFound)
 			std::cerr << std::format("Off::FField::EditorOnlyMetadata: 0x{:X}\n", Off::FField::EditorOnlyMetadata);
 
-		Off::FFieldClass::CastFlags = OffsetFinder::FindFieldClassCastFlagsOffset();
+		Off::FFieldClass::CastFlags = SEH_FindOffset(OffsetFinder::FindFieldClassCastFlagsOffset, "FindFieldClassCastFlagsOffset");
 		std::cerr << std::format("Off::FFieldClass::CastFlags: 0x{:X}\n\n", Off::FFieldClass::CastFlags);
 	}
 
-	Off::UStruct::StructBaseChain = OffsetFinder::FindStructBaseChainOffset();
+	Off::UStruct::StructBaseChain = SEH_FindOffset(OffsetFinder::FindStructBaseChainOffset, "FindStructBaseChainOffset");
 	if (Off::UStruct::StructBaseChain != OffsetFinder::OffsetNotFound)
 		std::cerr << std::format("Off::UStruct::StructBaseChain: 0x{:X}\n", Off::UStruct::StructBaseChain);
 
-	Off::UClass::ClassDefaultObject = OffsetFinder::FindDefaultObjectOffset();
+	Off::UClass::ClassDefaultObject = SEH_FindOffset(OffsetFinder::FindDefaultObjectOffset, "FindDefaultObjectOffset");
 	std::cerr << std::format("Off::UClass::ClassDefaultObject: 0x{:X}\n", Off::UClass::ClassDefaultObject);
 
-	Off::UClass::ImplementedInterfaces = OffsetFinder::FindImplementedInterfacesOffset();
+	Off::UClass::ImplementedInterfaces = SEH_FindOffset(OffsetFinder::FindImplementedInterfacesOffset, "FindImplementedInterfacesOffset");
 	std::cerr << std::format("Off::UClass::ImplementedInterfaces: 0x{:X}\n", Off::UClass::ImplementedInterfaces);
 
-	Off::UEnum::Names = OffsetFinder::FindEnumNamesOffset();
+	Off::UEnum::Names = SEH_FindOffset(OffsetFinder::FindEnumNamesOffset, "FindEnumNamesOffset");
 	std::cerr << std::format("Off::UEnum::Names: 0x{:X}\n", Off::UEnum::Names) << std::endl;
 
-	Off::UFunction::FunctionFlags = OffsetFinder::FindFunctionFlagsOffset();
+	Off::UFunction::FunctionFlags = SEH_FindOffset(OffsetFinder::FindFunctionFlagsOffset, "FindFunctionFlagsOffset");
 	std::cerr << std::format("Off::UFunction::FunctionFlags: 0x{:X}\n", Off::UFunction::FunctionFlags);
 
-	Off::UFunction::ExecFunction = OffsetFinder::FindFunctionNativeFuncOffset();
+	Off::UFunction::ExecFunction = SEH_FindOffset(OffsetFinder::FindFunctionNativeFuncOffset, "FindFunctionNativeFuncOffset");
 	std::cerr << std::format("Off::UFunction::ExecFunction: 0x{:X}\n", Off::UFunction::ExecFunction) << std::endl;
 
-	Off::Property::ElementSize = OffsetFinder::FindElementSizeOffset();
+	Off::Property::ElementSize = SEH_FindOffset(OffsetFinder::FindElementSizeOffset, "FindElementSizeOffset");
 	std::cerr << std::format("Off::Property::ElementSize: 0x{:X}\n", Off::Property::ElementSize);
 
-	Off::Property::ArrayDim = OffsetFinder::FindArrayDimOffset();
+	Off::Property::ArrayDim = SEH_FindOffset(OffsetFinder::FindArrayDimOffset, "FindArrayDimOffset");
 	std::cerr << std::format("Off::Property::ArrayDim: 0x{:X}\n", Off::Property::ArrayDim);
 
-	Off::Property::Offset_Internal = OffsetFinder::FindOffsetInternalOffset();
+	Off::Property::Offset_Internal = SEH_FindOffset(OffsetFinder::FindOffsetInternalOffset, "FindOffsetInternalOffset");
 	std::cerr << std::format("Off::Property::Offset_Internal: 0x{:X}\n", Off::Property::Offset_Internal);
 
-	Off::Property::PropertyFlags = OffsetFinder::FindPropertyFlagsOffset();
+	Off::Property::PropertyFlags = SEH_FindOffset(OffsetFinder::FindPropertyFlagsOffset, "FindPropertyFlagsOffset");
 	std::cerr << std::format("Off::Property::PropertyFlags: 0x{:X}\n", Off::Property::PropertyFlags);
 
-	Off::BoolProperty::Base = OffsetFinder::FindBoolPropertyBaseOffset();
+	Off::BoolProperty::Base = SEH_FindOffset(OffsetFinder::FindBoolPropertyBaseOffset, "FindBoolPropertyBaseOffset");
 	std::cerr << std::format("UBoolProperty::Base: 0x{:X}\n", Off::BoolProperty::Base) << std::endl;
 
-	Off::EnumProperty::Base = OffsetFinder::FindEnumPropertyBaseOffset();
+	Off::EnumProperty::Base = SEH_FindOffset(OffsetFinder::FindEnumPropertyBaseOffset, "FindEnumPropertyBaseOffset");
 	std::cerr << std::format("Off::EnumProperty::Base: 0x{:X}\n", Off::EnumProperty::Base) << std::endl;
 
 
@@ -399,38 +465,38 @@ void Off::Init()
 
 	std::cerr << std::format("UPropertySize: 0x{:X}\n", Off::InSDK::Properties::PropertySize) << std::endl;
 
-	Off::ObjectProperty::PropertyClass = OffsetFinder::FindObjectPropertyClassOffset();
+	Off::ObjectProperty::PropertyClass = SEH_FindOffset(OffsetFinder::FindObjectPropertyClassOffset, "FindObjectPropertyClassOffset");
 	std::cerr << std::format("Off::ObjectProperty::PropertyClass: 0x{:X}", Off::ObjectProperty::PropertyClass) << std::endl;
 	OverwriteIfInvalidOffset(Off::ObjectProperty::PropertyClass, Off::InSDK::Properties::PropertySize);
 
-	Off::ByteProperty::Enum = OffsetFinder::FindBytePropertyEnumOffset();
+	Off::ByteProperty::Enum = SEH_FindOffset(OffsetFinder::FindBytePropertyEnumOffset, "FindBytePropertyEnumOffset");
 	OverwriteIfInvalidOffset(Off::ByteProperty::Enum, Off::InSDK::Properties::PropertySize);
 	std::cerr << std::format("Off::ByteProperty::Enum: 0x{:X}", Off::ByteProperty::Enum) << std::endl;
 
-	Off::StructProperty::Struct = OffsetFinder::FindStructPropertyStructOffset();
+	Off::StructProperty::Struct = SEH_FindOffset(OffsetFinder::FindStructPropertyStructOffset, "FindStructPropertyStructOffset");
 	OverwriteIfInvalidOffset(Off::StructProperty::Struct, Off::InSDK::Properties::PropertySize);
 	std::cerr << std::format("Off::StructProperty::Struct: 0x{:X}\n", Off::StructProperty::Struct) << std::endl;
 
-	Off::DelegateProperty::SignatureFunction = OffsetFinder::FindDelegatePropertySignatureFunctionOffset();
+	Off::DelegateProperty::SignatureFunction = SEH_FindOffset(OffsetFinder::FindDelegatePropertySignatureFunctionOffset, "FindDelegatePropertySignatureFunctionOffset");
 	OverwriteIfInvalidOffset(Off::DelegateProperty::SignatureFunction, Off::InSDK::Properties::PropertySize);
 	std::cerr << std::format("Off::DelegateProperty::SignatureFunction: 0x{:X}\n", Off::DelegateProperty::SignatureFunction) << std::endl;
 
-	Off::ArrayProperty::Inner = OffsetFinder::FindInnerTypeOffset(Off::InSDK::Properties::PropertySize);
+	Off::ArrayProperty::Inner = SEH_FindOffsetI(OffsetFinder::FindInnerTypeOffset, Off::InSDK::Properties::PropertySize, "FindInnerTypeOffset");
 	std::cerr << std::format("Off::ArrayProperty::Inner: 0x{:X}\n", Off::ArrayProperty::Inner);
 
-	Off::SetProperty::ElementProp = OffsetFinder::FindSetPropertyBaseOffset(Off::InSDK::Properties::PropertySize);
+	Off::SetProperty::ElementProp = SEH_FindOffsetI(OffsetFinder::FindSetPropertyBaseOffset, Off::InSDK::Properties::PropertySize, "FindSetPropertyBaseOffset");
 	std::cerr << std::format("Off::SetProperty::ElementProp: 0x{:X}\n", Off::SetProperty::ElementProp);
 
-	Off::MapProperty::Base = OffsetFinder::FindMapPropertyBaseOffset(Off::InSDK::Properties::PropertySize);
+	Off::MapProperty::Base = SEH_FindOffsetI(OffsetFinder::FindMapPropertyBaseOffset, Off::InSDK::Properties::PropertySize, "FindMapPropertyBaseOffset");
 	std::cerr << std::format("Off::MapProperty::Base: 0x{:X}\n", Off::MapProperty::Base) << std::endl;
 
-	Off::InSDK::ULevel::Actors = OffsetFinder::FindLevelActorsOffset();
+	Off::InSDK::ULevel::Actors = SEH_FindOffset(OffsetFinder::FindLevelActorsOffset, "FindLevelActorsOffset");
 	std::cerr << std::format("Off::InSDK::ULevel::Actors: 0x{:X}\n", Off::InSDK::ULevel::Actors) << std::endl;
 
-	Off::InSDK::UDataTable::RowMap = OffsetFinder::FindDatatableRowMapOffset();
+	Off::InSDK::UDataTable::RowMap = SEH_FindOffset(OffsetFinder::FindDatatableRowMapOffset, "FindDatatableRowMapOffset");
 	std::cerr << std::format("Off::InSDK::UDataTable::RowMap: 0x{:X}\n", Off::InSDK::UDataTable::RowMap) << std::endl;
 
-	OffsetFinder::PostInitFNameSettings();
+	SEH_Call(OffsetFinder::PostInitFNameSettings, "PostInitFNameSettings");
 
 	std::cerr << std::endl;
 

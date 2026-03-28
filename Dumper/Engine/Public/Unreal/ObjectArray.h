@@ -24,6 +24,7 @@ private:
 	static inline uint32 NumElementsPerChunk = 0x10000;
 	static inline uint32 SizeOfFUObjectItem = sizeof(void*) + sizeof(int32) + sizeof(int32);
 	static inline uint32 FUObjectItemInitialOffset = 0x0;
+	static inline int32 NumOverride = -1;
 
 public:
 	static inline std::string DecryptionLambdaStr;
@@ -93,6 +94,15 @@ public:
 	{
 		return GObjects;
 	}
+
+	// Allow overriding ByIndex from outside (for encrypted GObjects)
+	using ByIndexFnType = void*(*)(void* ObjectsArray, int32 Index, uint32 FUObjectItemSize, uint32 FUObjectItemOffset, uint32 PerChunk);
+	static void SetCustomByIndex(ByIndexFnType Fn) { ByIndex = Fn; }
+	static void SetGObjectsRaw(uint8* Ptr) { GObjects = Ptr; }
+	static void SetFUObjectItemSize(uint32 Size) { SizeOfFUObjectItem = Size; Off::InSDK::ObjArray::FUObjectItemSize = Size; }
+	static void SetFUObjectItemOffset(uint32 Offset) { FUObjectItemInitialOffset = Offset; Off::InSDK::ObjArray::FUObjectItemInitialOffset = Offset; }
+	static void SetNumElementsPerChunk(uint32 N) { NumElementsPerChunk = N; }
+	static void SetNumOverride(int32 N) { NumOverride = N; }
 };
 
 #ifndef InitObjectArrayDecryption
