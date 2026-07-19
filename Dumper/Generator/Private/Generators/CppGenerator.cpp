@@ -8,6 +8,10 @@
 
 #include "../Settings.h"
 
+/* Volatile package name updated before each package is generated.
+ * Defined here, extern'd in main.cpp for the SEH crash reporter. */
+volatile char g_CppGen_CurrentPackage[256] = { '\0' };
+
 constexpr std::string GetTypeFromSize(uint8 Size)
 {
 	switch (Size)
@@ -1570,24 +1574,34 @@ void CppGenerator::WriteFileEnd(StreamType& File, EFileType Type)
 void CppGenerator::Generate()
 {
 	// Generate SDK.hpp with sorted packages
+	std::cerr << "[DBG] CppGen: GenerateSDKHeader...\n" << std::flush;
 	StreamType SdkHpp(MainFolder / "SDK.hpp");
 	GenerateSDKHeader(SdkHpp);
+	std::cerr << "[DBG] CppGen: GenerateSDKHeader done\n" << std::flush;
 
 	// Generate PropertyFixup.hpp
+	std::cerr << "[DBG] CppGen: GeneratePropertyFixupFile...\n" << std::flush;
 	StreamType PropertyFixup(MainFolder / "PropertyFixup.hpp");
 	GeneratePropertyFixupFile(PropertyFixup);
+	std::cerr << "[DBG] CppGen: GeneratePropertyFixupFile done\n" << std::flush;
 
 	// Generate NameCollisions.inl file containing forward declarations for classes in namespaces (potentially requires lock)
+	std::cerr << "[DBG] CppGen: GenerateNameCollisionsInl...\n" << std::flush;
 	StreamType NameCollisionsInl(MainFolder / "NameCollisions.inl");
 	GenerateNameCollisionsInl(NameCollisionsInl);
+	std::cerr << "[DBG] CppGen: GenerateNameCollisionsInl done\n" << std::flush;
 
 	// Generate UnrealContainers.hpp
+	std::cerr << "[DBG] CppGen: GenerateUnrealContainers...\n" << std::flush;
 	StreamType UnrealContainers(MainFolder / "UnrealContainers.hpp");
 	GenerateUnrealContainers(UnrealContainers);
+	std::cerr << "[DBG] CppGen: GenerateUnrealContainers done\n" << std::flush;
 
 	// Generate UtfN.hpp
+	std::cerr << "[DBG] CppGen: GenerateUnicodeLib...\n" << std::flush;
 	StreamType UnicodeLib(MainFolder / "UtfN.hpp");
 	GenerateUnicodeLib(UnicodeLib);
+	std::cerr << "[DBG] CppGen: GenerateUnicodeLib done\n" << std::flush;
 
 	StreamType DebugAssertions;
 
@@ -1601,10 +1615,15 @@ void CppGenerator::Generate()
 	}
 
 	// Generate Basic.hpp and Basic.cpp files
+	std::cerr << "[DBG] CppGen: GenerateBasicFiles...\n" << std::flush;
 	StreamType BasicHpp(Subfolder / "Basic.hpp");
 	StreamType BasicCpp(Subfolder / "Basic.cpp");
 	GenerateBasicFiles(BasicHpp, BasicCpp, (Settings::Debug::bGenerateAssertionFile ? DebugAssertions : BasicHpp));
+	std::cerr << "[DBG] CppGen: GenerateBasicFiles done\n" << std::flush;
 
+
+	// Volatile tracker for crash reporting — updated before each package
+	// Defined here, extern'd in main.cpp
 
 	// Generates all packages and writes them to files
 	for (PackageInfoHandle Package : PackageManager::IterateOverPackageInfos())
@@ -1613,6 +1632,14 @@ void CppGenerator::Generate()
 			continue;
 
 		const std::string FileName = Settings::CppGenerator::FilePrefix + Package.GetName();
+
+		/* Update crash-reporter state */
+		{
+			const std::string& PkgName = Package.GetName();
+			const size_t CopyLen = PkgName.size() < 255u ? PkgName.size() : 255u;
+			for (size_t i = 0; i < CopyLen; ++i) g_CppGen_CurrentPackage[i] = PkgName[i];
+			g_CppGen_CurrentPackage[CopyLen] = '\0';
+		}
 		const std::u8string U8FileName = reinterpret_cast<const std::u8string&>(FileName);
 
 		StreamType ClassesFile;

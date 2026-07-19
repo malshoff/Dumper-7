@@ -181,7 +181,7 @@ void ObjectArray::InitializeFUObjectItem(uint8_t* FirstItemPtr)
 	Off::InSDK::ObjArray::FUObjectItemInitialOffset = FUObjectItemInitialOffset;
 	Off::InSDK::ObjArray::FUObjectItemSize = SizeOfFUObjectItem;
 
-	std::cerr << "Off::InSDK::ObjArray::FUObjectItemSize: " << Off::InSDK::ObjArray::FUObjectItemSize << "\n" << std::endl;
+	std::cerr << std::format("Off::InSDK::ObjArray::FUObjectItemSize: {} (0x{:X})\n\n", Off::InSDK::ObjArray::FUObjectItemSize, Off::InSDK::ObjArray::FUObjectItemSize);
 }
 
 void ObjectArray::InitDecryption(uint8_t* (*DecryptionFunction)(void* ObjPtr), const char* DecryptionLambdaAsStr)
@@ -485,19 +485,82 @@ UEType ObjectArray::FindObject(const std::string& FullName, EClassCastFlags Requ
 	return UEType();
 }
 
+/* Volatile globals updated just before every GetName call inside FindObjectFast.
+   When a crash fires the SEH handler in main.cpp can print these to show exactly which
+   object caused the access violation. */
+volatile int32_t  g_FindObjectFast_LastIdx     = -1;
+volatile uint64_t g_FindObjectFast_LastAddr    = 0;
+volatile int32_t  g_FindObjectFast_LastCompIdx = -1;
+volatile int32_t  g_FindObjectFast_Total       = 0;
+
 template<typename UEType>
 UEType ObjectArray::FindObjectFast(const std::string& Name, EClassCastFlags RequiredType)
 {
 	auto ObjArray = ObjectArray();
 
+	const int32 Total = ObjectArray::Num();
+	g_FindObjectFast_Total = Total;
+	int32 Idx     = 0;
+	int32 Skipped = 0;
+
+	std::cerr << std::format("[DBG] FindObjectFast(\"{}\") scanning {:d} objects...\n", Name, Total) << std::flush;
+
 	for (UEObject Object : ObjArray)
 	{
-		if (Object.IsA(RequiredType) && Object.GetName() == Name)
+		/* Progress every ~10000 objects */
+		if ((Idx % 10000) == 0)
+			std::cerr << std::format("[DBG]   progress {}/{} | skipped={}\n", Idx, Total, Skipped) << std::flush;
+
+		++Idx;
+
+		if (!Object || Platform::IsBadReadPtr(Object.GetAddress()))
 		{
+			++Skipped;
+			continue;
+		}
+
+		/* Verify VTable pointer and its first slot are readable */
+		void** VTable = *reinterpret_cast<void***>(Object.GetAddress());
+		if (!VTable || Platform::IsBadReadPtr(VTable) || Platform::IsBadReadPtr(VTable[0]))
+		{
+			++Skipped;
+			continue;
+		}
+
+		/* Validate FName CompIdx — a corrupt half-freed object has garbage here.
+		 * FNamePool uses (CompIdx >> BlockOffsetBits) as a chunk index; if that
+		 * chunk index is out of range AppendString crashes with AV.
+		 * Upper bound: 256 chunks * 16384 entries/chunk (0xE bit shift) = 4194304. */
+		const int32 CompIdx = Object.GetFName().GetCompIdx();
+		const int32 ChunkIdx = CompIdx >> 14;  /* 14 == typical FNamePoolBlockOffsetBits */
+		if (CompIdx < 0 || ChunkIdx > 256)
+		{
+			std::cerr << std::format("[DBG]   SKIP obj[{}] addr={:p} bad CompIdx={} ChunkIdx={}\n",
+				Idx - 1, Object.GetAddress(), CompIdx, ChunkIdx) << std::flush;
+			++Skipped;
+			continue;
+		}
+
+		if (!Object.IsA(RequiredType))
+			continue;
+
+		/* Record state so the SEH crash handler in main.cpp can show which object crashed */
+		g_FindObjectFast_LastIdx     = Idx - 1;
+		g_FindObjectFast_LastAddr    = reinterpret_cast<uint64_t>(Object.GetAddress());
+		g_FindObjectFast_LastCompIdx = CompIdx;
+
+		const std::string ObjName = Object.GetName();
+
+		if (ObjName == Name)
+		{
+			std::cerr << std::format("[DBG] FindObjectFast(\"{}\") FOUND at obj[{}] addr={:p}\n",
+				Name, Idx - 1, Object.GetAddress()) << std::flush;
 			return Object.Cast<UEType>();
 		}
 	}
 
+	std::cerr << std::format("[DBG] FindObjectFast(\"{}\") NOT FOUND. scanned={} skipped={}\n",
+		Name, Idx, Skipped) << std::flush;
 	return UEType();
 }
 
@@ -508,6 +571,13 @@ static UEType ObjectArray::FindObjectFastInOuter(const std::string& Name, std::s
 
 	for (UEObject Object : ObjArray)
 	{
+		if (!Object || Platform::IsBadReadPtr(Object.GetAddress()))
+			continue;
+
+		void** VTable = *reinterpret_cast<void***>(Object.GetAddress());
+		if (!VTable || Platform::IsBadReadPtr(VTable) || Platform::IsBadReadPtr(VTable[0]))
+			continue;
+
 		if (Object.GetName() == Name && Object.GetOuter().GetName() == Outer)
 		{
 			return Object.Cast<UEType>();

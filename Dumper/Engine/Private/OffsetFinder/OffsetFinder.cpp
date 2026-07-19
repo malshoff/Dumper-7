@@ -837,10 +837,20 @@ int32_t OffsetFinder::FindCastFlagsOffset()
 {
 	std::vector<std::pair<void*, EClassCastFlags>> Infos;
 
-	Infos.push_back({ ObjectArray::FindObjectFast("Actor").GetAddress(), EClassCastFlags::Actor });
-	Infos.push_back({ ObjectArray::FindObjectFast("Class").GetAddress(), EClassCastFlags::Field | EClassCastFlags::Struct | EClassCastFlags::Class });
+	std::cerr << "[DBG] FindCastFlagsOffset: searching Actor...\n" << std::flush;
+	auto ActorObj = ObjectArray::FindObjectFast("Actor");
+	std::cerr << std::format("[DBG] FindCastFlagsOffset: Actor addr={:p}\n", ActorObj.GetAddress()) << std::flush;
+	Infos.push_back({ ActorObj.GetAddress(), EClassCastFlags::Actor });
 
-	return FindOffset(Infos);
+	std::cerr << "[DBG] FindCastFlagsOffset: searching Class...\n" << std::flush;
+	auto ClassObj = ObjectArray::FindObjectFast("Class");
+	std::cerr << std::format("[DBG] FindCastFlagsOffset: Class addr={:p}\n", ClassObj.GetAddress()) << std::flush;
+	Infos.push_back({ ClassObj.GetAddress(), EClassCastFlags::Field | EClassCastFlags::Struct | EClassCastFlags::Class });
+
+	std::cerr << "[DBG] FindCastFlagsOffset: calling FindOffset...\n" << std::flush;
+	int32_t Result = FindOffset(Infos);
+	std::cerr << std::format("[DBG] FindCastFlagsOffset: result=0x{:X}\n", (uint32_t)Result) << std::flush;
+	return Result;
 }
 
 int32_t OffsetFinder::FindDefaultObjectOffset()

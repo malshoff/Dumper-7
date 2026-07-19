@@ -278,52 +278,65 @@ void Off::Init()
 
 	Off::UObject::Name = OffsetFinder::FindUObjectNameOffset();
 	OverwriteIfInvalidOffset(Off::UObject::Name, (Off::UObject::Class + sizeof(void*))); // Default to right after Class
-	std::cerr << std::format("Off::UObject::Name: 0x{:X}\n\n", Off::UObject::Name);
+	std::cerr << std::format("Off::UObject::Name: 0x{:X}\n\n", Off::UObject::Name) << std::flush;
 
 	OverwriteIfInvalidOffset(Off::UObject::Outer, (Off::UObject::Name + sizeof(int32) + sizeof(int32)));  // Default to right after Name
+	std::cerr << std::format("[DBG] Off::UObject::Outer (post-fixup): 0x{:X}\n", Off::UObject::Outer) << std::flush;
 
+	std::cerr << "[DBG] Calling InitFNameSettings...\n" << std::flush;
 	OffsetFinder::InitFNameSettings();
+	std::cerr << "[DBG] InitFNameSettings done\n" << std::flush;
+	std::cerr << std::format("[DBG] FNameSize=0x{:X} bUseCasePreserving={} bUseOutlineNumber={}\n",
+		Off::InSDK::Name::FNameSize,
+		(int)Settings::Internal::bUseCasePreservingName,
+		(int)Settings::Internal::bUseOutlineNumberName) << std::flush;
 
+	std::cerr << "[DBG] Calling NameArray::PostInit...\n" << std::flush;
 	::NameArray::PostInit();
+	std::cerr << "[DBG] NameArray::PostInit done\n" << std::flush;
 
+	std::cerr << "[DBG] Finding CastFlags...\n" << std::flush;
 	// Castflags needs to stay here since the FindChildOffset() uses CastFlags
 	Off::UClass::CastFlags = OffsetFinder::FindCastFlagsOffset();
-	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags);
+	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags) << std::flush;
 
 	Off::UStruct::Children = OffsetFinder::FindChildOffset();
-	std::cerr << std::format("Off::UStruct::Children: 0x{:X}\n", Off::UStruct::Children);
+	std::cerr << std::format("Off::UStruct::Children: 0x{:X}\n", Off::UStruct::Children) << std::flush;
 
 	Off::UField::Next = OffsetFinder::FindUFieldNextOffset();
-	std::cerr << std::format("Off::UField::Next: 0x{:X}\n", Off::UField::Next);
+	std::cerr << std::format("Off::UField::Next: 0x{:X}\n", Off::UField::Next) << std::flush;
 
 	Off::UStruct::SuperStruct = OffsetFinder::FindSuperOffset();
-	std::cerr << std::format("Off::UStruct::SuperStruct: 0x{:X}\n", Off::UStruct::SuperStruct);
+	std::cerr << std::format("Off::UStruct::SuperStruct: 0x{:X}\n", Off::UStruct::SuperStruct) << std::flush;
 
 	Off::UStruct::Size = OffsetFinder::FindStructSizeOffset();
-	std::cerr << std::format("Off::UStruct::Size: 0x{:X}\n", Off::UStruct::Size);
+	std::cerr << std::format("Off::UStruct::Size: 0x{:X}\n", Off::UStruct::Size) << std::flush;
 
 	Off::UStruct::MinAlignment = OffsetFinder::FindMinAlignmentOffset();
-	std::cerr << std::format("Off::UStruct::MinAlignment: 0x{:X}\n", Off::UStruct::MinAlignment);
+	std::cerr << std::format("Off::UStruct::MinAlignment: 0x{:X}\n", Off::UStruct::MinAlignment) << std::flush;
 
 	Off::UClass::CastFlags = OffsetFinder::FindCastFlagsOffset();
-	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags);
+	std::cerr << std::format("Off::UClass::CastFlags: 0x{:X}\n", Off::UClass::CastFlags) << std::flush;
 
 	// Castflags become available for use
 
 	if (Settings::Internal::bUseFProperty)
 	{
-		std::cerr << std::format("\nGame uses FProperty system\n\n");
+		std::cerr << std::format("\nGame uses FProperty system\n\n") << std::flush;
 
+		std::cerr << "[DBG] Finding ChildProperties...\n" << std::flush;
 		Off::UStruct::ChildProperties = OffsetFinder::FindChildPropertiesOffset();
-		std::cerr << std::format("Off::UStruct::ChildProperties: 0x{:X}\n", Off::UStruct::ChildProperties);
+		std::cerr << std::format("Off::UStruct::ChildProperties: 0x{:X}\n", Off::UStruct::ChildProperties) << std::flush;
 
+		std::cerr << "[DBG] FixupHardcodedOffsets...\n" << std::flush;
 		OffsetFinder::FixupHardcodedOffsets(); // must be called after FindChildPropertiesOffset 
+		std::cerr << "[DBG] FixupHardcodedOffsets done\n" << std::flush;
 
 		Off::FField::Next = OffsetFinder::FindFFieldNextOffset();
-		std::cerr << std::format("Off::FField::Next: 0x{:X}\n", Off::FField::Next);
+		std::cerr << std::format("Off::FField::Next: 0x{:X}\n", Off::FField::Next) << std::flush;
 
 		Off::FField::Class = OffsetFinder::FindFFieldClassOffset();
-		std::cerr << std::format("Off::FField::Class: 0x{:X}\n", Off::FField::Class);
+		std::cerr << std::format("Off::FField::Class: 0x{:X}\n", Off::FField::Class) << std::flush;
 
 		// Comment out this line if you're crashing here and see if the NewFindFFieldNameOffset might work!
 		Off::FField::Name = OffsetFinder::FindFFieldNameOffset();

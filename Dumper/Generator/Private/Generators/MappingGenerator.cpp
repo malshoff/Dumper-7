@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <string>
 
@@ -8,6 +7,11 @@
 
 #include "../Settings.h"
 #include "Utils.h"
+
+/* Updated before each enum is processed — helps identify which enum crashes. */
+volatile int32  g_MapGen_LastEnumIdx  = -1;
+volatile uint64 g_MapGen_LastEnumAddr = 0;
+volatile int32  g_MapGen_EnumCount    = 0;
 
 EMappingsTypeFlags MappingGenerator::GetMappingType(UEProperty Property)
 {
@@ -328,6 +332,7 @@ std::stringstream MappingGenerator::GenerateFileData()
 	uint32 NumStructsAndClasse = 0x0;
 
 	/* Handle all Enums first */
+	std::cerr << "[DBG] MappingGen: enum loop...\n" << std::flush;
 	for (PackageInfoHandle Package : PackageManager::IterateOverPackageInfos())
 	{
 		if (Package.IsEmpty())
@@ -339,12 +344,18 @@ std::stringstream MappingGenerator::GenerateFileData()
 
 		for (int32 EnumIdx : Package.GetEnums())
 		{
-			GenerateEnum(ObjectArray::GetByIndex<UEEnum>(EnumIdx), EnumData, NameData);
+			UEEnum RawEnum = ObjectArray::GetByIndex<UEEnum>(EnumIdx);
+			g_MapGen_LastEnumIdx  = EnumIdx;
+			g_MapGen_LastEnumAddr = reinterpret_cast<uint64>(RawEnum.GetAddress());
+			GenerateEnum(EnumWrapper(RawEnum), EnumData, NameData);
+			++g_MapGen_EnumCount;
 			NumEnums++;
 		}
 	}
+	std::cerr << "[DBG] MappingGen: enum loop done, NumEnums=" << NumEnums << "\n" << std::flush;
 	
 	/* Handle all structs and classes in one go. From the mapping-files point of view classes are the exact same as structs. */
+	std::cerr << "[DBG] MappingGen: struct/class loop...\n" << std::flush;
 	for (PackageInfoHandle Package : PackageManager::IterateOverPackageInfos())
 	{
 		if (Package.IsEmpty())
@@ -372,6 +383,7 @@ std::stringstream MappingGenerator::GenerateFileData()
 			Classes.VisitAllNodesWithCallback(GenerateStructCallback);
 		}
 	}
+	std::cerr << "[DBG] MappingGen: struct/class loop done, NumStructs=" << NumStructsAndClasse << "\n" << std::flush;
 
 	/* Combine all of the stringstreams into one Data block representing the entire payload of the file */
 	std::stringstream ReturnBuffer;
@@ -461,13 +473,19 @@ void MappingGenerator::Generate()
 
 	FileNameHelper::MakeValidFileName(MappingsFileName);
 
+	std::cerr << "[DBG] MappingGen: opening file '" << MappingsFileName << "'...\n" << std::flush;
 	/* Open the stream as binary data, else ofstream will add \r after numbers that can be interpreted as \n. */
 	std::ofstream UsmapFile(MainFolder / MappingsFileName, std::ios::binary);
+	std::cerr << "[DBG] MappingGen: file open=" << UsmapFile.is_open() << "\n" << std::flush;
 
 	/* Generate the payload of the file, containing all of the names, enums and structs. */
+	std::cerr << "[DBG] MappingGen: GenerateFileData...\n" << std::flush;
 	std::stringstream FileData = GenerateFileData();
+	std::cerr << "[DBG] MappingGen: GenerateFileData done\n" << std::flush;
 
 	/* Generate the header, and write both header and payload into the file. */
+	std::cerr << "[DBG] MappingGen: GenerateFileHeader...\n" << std::flush;
 	GenerateFileHeader(UsmapFile, FileData);
+	std::cerr << "[DBG] MappingGen: GenerateFileHeader done\n" << std::flush;
 }
 

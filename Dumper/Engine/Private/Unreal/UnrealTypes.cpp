@@ -203,6 +203,38 @@ void FName::Init_Windows(bool bForceGNames)
 #endif // PLATFORM_WINDOWS
 }
 
+bool FName::ForceGNamesMode()
+{
+	if (Off::InSDK::NameArray::GNames == 0)
+	{
+		std::cerr << "[ForceGNamesMode] GNames offset is 0 - NameArray not initialized!\n" << std::flush;
+		return false;
+	}
+
+	if (!ToStr)
+	{
+		/* ToStr wasn't set by Init_Windows - wire it up directly */
+		ToStr = [](const void* Name) -> std::wstring
+		{
+			if (!Settings::Internal::bUseOutlineNumberName)
+			{
+				const uint32 Number = FName(Name).GetNumber();
+				if (Number > 0)
+					return NameArray::GetNameEntry(Name).GetWString() + L'_' + std::to_wstring(Number - 1);
+			}
+			return NameArray::GetNameEntry(Name).GetWString();
+		};
+		std::cerr << "[ForceGNamesMode] ToStr was null - wired to NameArray directly.\n" << std::flush;
+	}
+
+	AppendString = nullptr;
+	std::cerr << std::format("[ForceGNamesMode] Active. GNamesOffset=0x{:X} bUseNamePool={} bUseOutlineNumber={}\n",
+		Off::InSDK::NameArray::GNames,
+		(int)Settings::Internal::bUseNamePool,
+		(int)Settings::Internal::bUseOutlineNumberName) << std::flush;
+	return true;
+}
+
 void FName::Init(int32 OverrideOffset, EOffsetOverrideType OverrideType, bool bIsNamePool, const char* const ModuleName)
 {
 	if (OverrideType == EOffsetOverrideType::GNames)

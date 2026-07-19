@@ -100,6 +100,10 @@ public:
 	static void Init_Windows(bool bForceGNames = false);
 	static void InitFallback();
 
+	/* Nulls out AppendString and ensures ToStr uses NameArray/FNamePool.
+	 * Returns true if GNames is active and name resolution is safe. */
+	static bool ForceGNamesMode();
+
 	static void Init(int32 OverrideOffset, EOffsetOverrideType OverrideType = EOffsetOverrideType::AppendString, bool bIsNamePool = false, const char* const ModuleName = Settings::General::DefaultModuleName);
 
 private:
